@@ -3,7 +3,7 @@ importScripts('../core/math.js', 'context.js', 'pollard.js', 'ecm.js', 'siqs.js'
 // Load WASM
 let wasmModule;
 importScripts('../wasm/wasm_engine.js');
-wasm_bindgen('../wasm/wasm_engine_bg.wasm').then((module) => {
+wasm_bindgen({ module_or_path: '../wasm/wasm_engine_bg.wasm' }).then((module) => {
     wasmModule = module;
     // Notify main thread that worker is ready
     postMessage({ type: "WASM_READY", workerId: ctx.workerId });

@@ -41,11 +41,7 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
             let b_i = FB[q_indices[i]].r;
             let Q_i = A / q_i;
 
-            // --- WASM INTEGRATION ---
-            let inv_res_str = wasm_bindgen.ext_gcd_inverse((Q_i % q_i).toString(), q_i.toString());
-            let inv_res = inv_res_str ? { success: true, value: BigInt(inv_res_str) } : { success: false, factor: q_i };
-            // let inv_res = extGCDInverse(Q_i % q_i, q_i); // OLD JS Implementation
-
+            let inv_res = extGCDInverse(Q_i % q_i, q_i);
             if (!inv_res.success) { skipA = true; break; }
             let gamma = (b_i * inv_res.value) % q_i;
             B_i_prime[i] = gamma * Q_i;
@@ -65,12 +61,7 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
             if (isFactorOfA) { A_inv_p[j] = 0; continue; }
 
             let a_mod = A % p;
-
-            // --- WASM INTEGRATION ---
-            let inv_res_str = wasm_bindgen.ext_gcd_inverse(a_mod.toString(), p.toString());
-            let inv_res = inv_res_str ? { success: true, value: BigInt(inv_res_str) } : { success: false, factor: p };
-            // let inv_res = extGCDInverse(a_mod, p); // OLD JS Implementation
-
+            let inv_res = extGCDInverse(a_mod, p);
             if (!inv_res.success) { A_inv_p[j] = 0; continue; }
             let a_inv = inv_res.value;
             A_inv_p[j] = Number(a_inv);

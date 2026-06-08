@@ -17,6 +17,9 @@ class FactorizationEngine {
         this.unresolved = [];
         this.startTime = null;
         this.timerInterval = null;
+
+        this.wasmReadyCount = 0;
+        this.startPending = false;
     }
 
     initWorkers() {
@@ -62,11 +65,17 @@ class FactorizationEngine {
         this.isRunning = true;
 
         this.ui.setButtonsRunning();
-        this.ui.updateStatus("RUNNING", true);
+        this.ui.updateStatus("INITIALIZING", true);
         this.ui.log(`[SYSTEM START] Factorization target: ${this.ui.formatBigInt(targetBig)}`, "sys");
 
-        this.startTimer();
-        this.processQueue();
+        if (this.wasmReadyCount < this.maxWorkers) {
+            this.ui.log("[SYSTEM WAITING] Waiting for WASM core initialization...", "sys");
+            this.startPending = true;
+        } else {
+            this.ui.updateStatus("RUNNING", true);
+            this.startTimer();
+            this.processQueue();
+        }
     }
 
     stop() {
@@ -103,8 +112,19 @@ class FactorizationEngine {
     }
 
     handleWorkerMessage(e) {
-        if (!this.isRunning) return;
         const data = e.data;
+        if (data.type === "WASM_READY") {
+            this.wasmReadyCount++;
+            if (this.wasmReadyCount === this.maxWorkers && this.startPending) {
+                this.startPending = false;
+                this.ui.updateStatus("RUNNING", true);
+                this.startTimer();
+                this.processQueue();
+            }
+            return;
+        }
+
+        if (!this.isRunning) return;
 
         if (data.type === 'PHASE_UPDATE') {
             this.ui.updateCoreStatus(data.workerId, data.phase, data.detail);
