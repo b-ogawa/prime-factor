@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Prime Factorization Engine (SIQS/MPQS & ECM)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body class="bg-slate-50 text-slate-800 font-sans p-4 md:p-8 min-h-screen">
+
+    <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- 左カラム：制御パネル -->
+        <div class="col-span-1 lg:col-span-1 flex flex-col gap-4">
+
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-sm font-bold text-slate-800 tracking-wide flex items-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                        PARALLEL HYBRID ENGINE
+                    </h2>
+                    <div id="coreBadge"
+                        class="px-2 py-1 bg-slate-100 text-slate-600 rounded text-[10px] font-mono font-bold border border-slate-200 flex items-center gap-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-slate-400" id="coreIndicator"></span>
+                        <span id="coreCount">0 CORES</span>
+                    </div>
+                </div>
+
+                <!-- モード切替 -->
+                <div class="mb-4">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Factorization
+                        Mode</label>
+                    <select id="engineMode"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 transition-all">
+                        <option value="auto">Auto-Route (Best of Both Worlds)</option>
+                        <option value="siqs">Pure SIQS / MPQS Mode (25 - 65 digits)</option>
+                        <option value="ecm">BPSW + Pollard P-1 + ECM Suite</option>
+                    </select>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Target Number (N)</label>
+                    <textarea id="numberInput" rows="3"
+                        class="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm font-mono text-slate-800 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all resize-none shadow-inner"
+                        placeholder="Enter a large integer..."></textarea>
+                    <div class="flex justify-end mt-1">
+                        <span id="digitCounter" class="text-[10px] font-mono text-slate-400 font-medium">0 digits</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3 mb-5">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Trial Limit</label>
+                        <input type="number" id="paramTrialLimit" value="10000"
+                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 mb-1">ECM B1 Limit</label>
+                        <input type="number" id="paramB1" value="5000"
+                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 mb-1">P-1 Limit</label>
+                        <input type="number" id="paramP1Limit" value="25000"
+                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Rho Limit</label>
+                        <input type="number" id="paramRhoLimit" value="250000"
+                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Max ECM Curves per Worker</label>
+                        <input type="number" id="paramMaxCurves" value="500"
+                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                    </div>
+                </div>
+
+                <div class="flex gap-2">
+                    <button id="btnStart"
+                        class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 font-mono shadow-sm">
+                        START ENGINE
+                    </button>
+                    <button id="btnStop" disabled
+                        class="py-2.5 px-4 bg-slate-100 text-slate-400 border border-slate-200 rounded-lg font-medium text-xs transition-all cursor-not-allowed flex items-center justify-center font-mono">
+                        STOP
+                    </button>
+                    <button id="btnClear"
+                        class="py-2.5 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-lg font-medium text-xs transition-all flex items-center justify-center shadow-sm">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                            </path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- システム状態モニタ -->
+            <div class="bg-slate-900 rounded-xl shadow-sm p-4 text-slate-100 flex flex-col gap-3">
+                <div class="flex justify-between items-end border-b border-slate-700 pb-2">
+                    <div>
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Status</div>
+                        <div id="engineStatusText" class="font-mono text-sm font-bold text-slate-500">IDLE</div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Elapsed</div>
+                        <div id="statTimer" class="font-mono text-lg font-light text-white tracking-wider">00:00.0</div>
+                    </div>
+                </div>
+                <div>
+                    <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">Active Target
+                    </div>
+                    <div id="statTarget" class="font-mono text-xs text-emerald-400 break-all h-4">-</div>
+                </div>
+
+                <!-- SIQS 進捗メーター -->
+                <div id="siqsProgressPanel" class="hidden bg-slate-800 rounded p-2.5 border border-slate-700">
+                    <div
+                        class="flex justify-between text-[10px] font-bold text-slate-300 mb-1 uppercase tracking-wider">
+                        <span>SIQS Matrix Relations</span>
+                        <span id="siqsRelRatio">0 / 0</span>
+                    </div>
+                    <div class="w-full bg-slate-700 rounded-full h-1.5 mb-2 overflow-hidden">
+                        <div id="siqsProgressBar"
+                            class="bg-emerald-500 h-1.5 w-0 rounded-full transition-all duration-300"></div>
+                    </div>
+                    <div class="flex justify-between text-[9px] font-mono text-slate-400">
+                        <span>Polys: <span id="siqsPolyCount" class="text-slate-200">0</span></span>
+                        <span>Speed: <span id="siqsRelSpeed" class="text-slate-200">0</span> rels/s</span>
+                    </div>
+                </div>
+
+                <!-- スレッドリアルタイムモニタ -->
+                <div class="mt-1 pt-3 border-t border-slate-700/50">
+                    <div
+                        class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex justify-between items-center">
+                        <span>Core Activity</span>
+                        <div class="flex gap-1">
+                            <span class="block w-1 h-1 bg-emerald-500 rounded-full animate-pulse"></span>
+                            <span class="block w-1 h-1 bg-emerald-500 rounded-full animate-pulse"
+                                style="animation-delay: 0.2s"></span>
+                            <span class="block w-1 h-1 bg-emerald-500 rounded-full animate-pulse"
+                                style="animation-delay: 0.4s"></span>
+                        </div>
+                    </div>
+                    <div id="coreActivityContainer" class="flex flex-col gap-1.5 max-h-[160px] overflow-y-auto pr-1">
+                        <!-- スレッドステータスがここに挿入される -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 右カラム：結果＆ログ -->
+        <div class="col-span-1 lg:col-span-2 flex flex-col gap-6">
+
+            <!-- 発見された素因数 -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col min-h-[220px]">
+                <div class="flex justify-between items-center mb-4 border-b border-slate-100 pb-3">
+                    <h2 class="text-sm font-bold text-slate-800 tracking-wide">Extracted Factors</h2>
+                    <span
+                        class="px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded text-[10px] font-bold border border-emerald-200">
+                        COUNT: <span id="statFactorCount">0</span>
+                    </span>
+                </div>
+                <div id="factorsContainer" class="flex-1 flex flex-col gap-2 max-h-[200px] overflow-y-auto pr-1">
+                    <div class="text-center py-8 text-slate-400 text-xs font-mono">分解された素因数がここに一覧表示されます。</div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-100">
+                    <div class="text-[10px] font-bold text-slate-400 uppercase mb-1">Equation Form</div>
+                    <div id="equationDisplay"
+                        class="font-mono text-xs text-slate-700 break-all bg-slate-50 p-2 rounded border border-slate-200">
+                        No active data.</div>
+                </div>
+            </div>
+
+            <!-- コンソールログ -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
+                <div class="bg-slate-50 border-b border-slate-200 px-4 py-2 flex justify-between items-center">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Thread Console</span>
+                </div>
+                <div id="consoleLog" class="p-3 overflow-y-auto bg-slate-50 flex-1 min-h-[250px] max-h-[350px]">
+                    <div class="text-slate-400 font-mono text-[11px]">&gt; Parallel Engine Initialized. Ready to
+                        calculate.</div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+
+</html>
