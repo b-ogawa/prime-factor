@@ -1,5 +1,14 @@
 importScripts('../core/math.js', 'context.js', 'pollard.js', 'ecm.js', 'siqs.js');
 
+// Load WASM
+let wasmModule;
+importScripts('../wasm/wasm_engine.js');
+wasm_bindgen('../wasm/wasm_engine_bg.wasm').then((module) => {
+    wasmModule = module;
+    // Notify main thread that worker is ready
+    postMessage({ type: "WASM_READY", workerId: ctx.workerId });
+}).catch(console.error);
+
 // Main Worker Routine
 self.onmessage = async (e) => {
     const data = e.data;
@@ -49,10 +58,13 @@ self.onmessage = async (e) => {
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
             if (params.rhoLimit > 0) {
-                ctx.sendPhase("Pollard Rho", "Limit=" + params.rhoLimit, true);
-                let rhoFactor = await pollardBrent(M, params.rhoLimit, mont, ctx);
-                if (rhoFactor) {
-                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactor, target: M, workerId: ctx.workerId, method: "Rho (Brent)" });
+                ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
+
+                // --- WASM INTEGRATION ---
+                let rhoFactorStr = wasm_bindgen.pollard_brent(M.toString(), params.rhoLimit);
+
+                if (rhoFactorStr) {
+                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactorStr, target: M, workerId: ctx.workerId, method: "Rho (WASM)" });
                     return;
                 }
             }
