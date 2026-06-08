@@ -5,42 +5,22 @@ let wasm_bindgen = (function(exports) {
     }
 
     /**
-     * @param {string} a
-     * @param {string} m
-     * @returns {string | undefined}
-     */
-    function ext_gcd_inverse(a, m) {
-        const ptr0 = passStringToWasm0(a, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ptr1 = passStringToWasm0(m, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-        const len1 = WASM_VECTOR_LEN;
-        const ret = wasm.ext_gcd_inverse(ptr0, len0, ptr1, len1);
-        let v3;
-        if (ret[0] !== 0) {
-            v3 = getStringFromWasm0(ret[0], ret[1]).slice();
-            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        }
-        return v3;
-    }
-    exports.ext_gcd_inverse = ext_gcd_inverse;
-
-    /**
-     * @param {string} n_str
+     * @param {Uint8Array} n_bytes
      * @param {number} max_iters
-     * @returns {string | undefined}
+     * @returns {Uint8Array | undefined}
      */
-    function pollard_brent(n_str, max_iters) {
-        const ptr0 = passStringToWasm0(n_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    function pollard_brent_bytes(n_bytes, max_iters) {
+        const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.pollard_brent(ptr0, len0, max_iters);
+        const ret = wasm.pollard_brent_bytes(ptr0, len0, max_iters);
         let v2;
         if (ret[0] !== 0) {
-            v2 = getStringFromWasm0(ret[0], ret[1]).slice();
+            v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
             wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         }
         return v2;
     }
-    exports.pollard_brent = pollard_brent;
+    exports.pollard_brent_bytes = pollard_brent_bytes;
     function __wbg_get_imports() {
         const import0 = {
             __proto__: null,
@@ -191,40 +171,10 @@ let wasm_bindgen = (function(exports) {
         return x === undefined || x === null;
     }
 
-    function passStringToWasm0(arg, malloc, realloc) {
-        if (realloc === undefined) {
-            const buf = cachedTextEncoder.encode(arg);
-            const ptr = malloc(buf.length, 1) >>> 0;
-            getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
-            WASM_VECTOR_LEN = buf.length;
-            return ptr;
-        }
-
-        let len = arg.length;
-        let ptr = malloc(len, 1) >>> 0;
-
-        const mem = getUint8ArrayMemory0();
-
-        let offset = 0;
-
-        for (; offset < len; offset++) {
-            const code = arg.charCodeAt(offset);
-            if (code > 0x7F) break;
-            mem[ptr + offset] = code;
-        }
-        if (offset !== len) {
-            if (offset !== 0) {
-                arg = arg.slice(offset);
-            }
-            ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
-            const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
-            const ret = cachedTextEncoder.encodeInto(arg, view);
-
-            offset += ret.written;
-            ptr = realloc(ptr, len, offset, 1) >>> 0;
-        }
-
-        WASM_VECTOR_LEN = offset;
+    function passArray8ToWasm0(arg, malloc) {
+        const ptr = malloc(arg.length * 1, 1) >>> 0;
+        getUint8ArrayMemory0().set(arg, ptr / 1);
+        WASM_VECTOR_LEN = arg.length;
         return ptr;
     }
 
@@ -232,19 +182,6 @@ let wasm_bindgen = (function(exports) {
     cachedTextDecoder.decode();
     function decodeText(ptr, len) {
         return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
-    }
-
-    const cachedTextEncoder = new TextEncoder();
-
-    if (!('encodeInto' in cachedTextEncoder)) {
-        cachedTextEncoder.encodeInto = function (arg, view) {
-            const buf = cachedTextEncoder.encode(arg);
-            view.set(buf);
-            return {
-                read: arg.length,
-                written: buf.length
-            };
-        };
     }
 
     let WASM_VECTOR_LEN = 0;

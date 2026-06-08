@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use num_bigint::{BigUint, BigInt};
+use num_bigint::BigUint;
 use num_traits::{Zero, One};
 use getrandom::getrandom;
 
@@ -105,8 +105,8 @@ fn gcd(a: BigUint, b: BigUint) -> BigUint {
 }
 
 #[wasm_bindgen]
-pub fn pollard_brent(n_str: &str, max_iters: usize) -> Option<String> {
-    let n = n_str.parse::<BigUint>().unwrap();
+pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> {
+    let n = BigUint::from_bytes_le(n_bytes);
     let mont = MontgomerySpace::new(n.clone());
     let mut prng = Xoroshiro128PlusPlus::new();
 
@@ -161,39 +161,5 @@ pub fn pollard_brent(n_str: &str, max_iters: usize) -> Option<String> {
         }
     }
 
-    if g == n { None } else { Some(g.to_string()) }
-}
-
-#[wasm_bindgen]
-pub fn ext_gcd_inverse(a: &str, m: &str) -> Option<String> {
-    let a_val = a.parse::<BigInt>().unwrap();
-    let m_val = m.parse::<BigInt>().unwrap();
-
-    let a_mod = (&a_val % &m_val + &m_val) % &m_val;
-    let mut x0 = BigInt::one();
-    let mut y0 = BigInt::zero();
-    let mut x1 = BigInt::zero();
-    let mut y1 = BigInt::one();
-    let mut b = m_val.clone();
-    let mut a_curr = a_mod;
-
-    while b != BigInt::zero() {
-        let q = &a_curr / &b;
-        let r = &a_curr % &b;
-        a_curr = b;
-        b = r;
-
-        let x2 = &x0 - &q * &x1;
-        let y2 = &y0 - &q * &y1;
-        x0 = x1;
-        x1 = x2;
-        y0 = y1;
-        y1 = y2;
-    }
-
-    if a_curr == BigInt::one() {
-        Some(((x0 % &m_val + &m_val) % &m_val).to_string())
-    } else {
-        None
-    }
+    if g == n { None } else { Some(g.to_bytes_le()) }
 }

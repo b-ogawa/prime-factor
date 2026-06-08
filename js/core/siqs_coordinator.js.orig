@@ -115,8 +115,6 @@ class SIQSCoordinator {
     }
 
     reduceMatrix() {
-        if (!this.active || !this.engine.activeTarget) return;
-
         this.engine.ui.log("[SIQS] Running Bit-packed Gaussian Elimination on binary matrix...", "sys");
         this.engine.ui.updateStatus("SIQS: Reducing Matrix");
 

@@ -1,4 +1,4 @@
-importScripts('../core/math.js', 'math_utils.js', 'context.js', 'pollard.js', 'ecm.js', 'siqs.js');
+importScripts('../core/math.js', 'context.js', 'pollard.js', 'ecm.js', 'siqs.js');
 
 // Load WASM
 let wasmModule;
@@ -61,12 +61,10 @@ self.onmessage = async (e) => {
                 ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
 
                 // --- WASM INTEGRATION ---
-                let n_bytes = bigIntToBytesLE(M);
-                let rhoFactorBytes = wasm_bindgen.pollard_brent_bytes(n_bytes, params.rhoLimit);
+                let rhoFactorStr = wasm_bindgen.pollard_brent(M.toString(), params.rhoLimit);
 
-                if (rhoFactorBytes) {
-                    let rhoFactorBigInt = bytesToBigIntLE(rhoFactorBytes);
-                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "Rho (WASM)" });
+                if (rhoFactorStr) {
+                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactorStr, target: M, workerId: ctx.workerId, method: "Rho (WASM)" });
                     return;
                 }
             }
