@@ -121,6 +121,246 @@ fn gcd(mut a: Int, mut b: Int) -> Int {
     a
 }
 
+fn is_square(n: Int) -> bool {
+    if n == Int::from(0) { return true; }
+    let mod16 = (n.as_limbs()[0] & 15) as u8;
+    if mod16 != 0 && mod16 != 1 && mod16 != 4 && mod16 != 9 { return false; }
+
+    let mut x = n;
+    let mut y = (x + Int::from(1)) >> 1;
+    while y < x {
+        x = y;
+        y = (x + n / x) >> 1;
+    }
+    x * x == n
+}
+
+fn jacobi(mut a: Int, mut n: Int) -> i32 {
+    let mut t = 1;
+    while a != Int::from(0) {
+        while a.as_limbs()[0] % 2 == 0 {
+            a >>= 1;
+            let r = n.as_limbs()[0] % 8;
+            if r == 3 || r == 5 { t = -t; }
+        }
+        core::mem::swap(&mut a, &mut n);
+        if a.as_limbs()[0] % 4 == 3 && n.as_limbs()[0] % 4 == 3 { t = -t; }
+        a = a % n;
+    }
+    if n == Int::from(1) { t } else { 0 }
+}
+
+fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
+    let mut d = n - Int::from(1);
+    let mut s = 0;
+    while d.as_limbs()[0] % 2 == 0 {
+        d >>= 1;
+        s += 1;
+    }
+    let a = mont.transform(base);
+
+    let mut res = mont.transform(Int::from(1));
+    let mut base_pow = a;
+    let mut exp = d;
+    while exp > Int::from(0) {
+        if exp.as_limbs()[0] & 1 == 1 {
+            res = mont.mul(res, base_pow);
+        }
+        base_pow = mont.mul(base_pow, base_pow);
+        exp >>= 1;
+    }
+
+    let mut x = res;
+    let one = mont.transform(Int::from(1));
+    let minus_one = mont.transform(n - Int::from(1));
+
+    if x == one || x == minus_one { return true; }
+
+    for _ in 1..s {
+        x = mont.mul(x, x);
+        if x == minus_one { return true; }
+        if x == one { return false; }
+    }
+    false
+}
+
+#[wasm_bindgen]
+pub fn is_prime_bpsw_bytes(n_bytes: &[u8]) -> bool {
+    let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));
+    if n < Int::from(2) { return false; }
+    if n == Int::from(2) || n == Int::from(3) || n == Int::from(5) || n == Int::from(7) { return true; }
+    if n.as_limbs()[0] % 2 == 0 || n.as_limbs()[0] % 3 == 0 || n.as_limbs()[0] % 5 == 0 { return false; }
+
+    let mont = MontgomerySpace::new(n);
+
+    let bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
+    for &b in &bases {
+        let b_int = Int::from(b);
+        if n <= b_int { break; }
+        if !miller_rabin_base_mont(n, b_int, &mont) { return false; }
+    }
+
+    if n.as_limbs()[1] > 0 || n.as_limbs()[2] > 0 || n.as_limbs()[3] > 0 {
+        let mut prng = Xoroshiro128PlusPlus::new();
+        for _ in 0..10 {
+            let rand_base = (Int::from(prng.next()) % (n - Int::from(2))) + Int::from(2);
+            if !miller_rabin_base_mont(n, rand_base, &mont) { return false; }
+        }
+        if is_square(n) { return false; }
+    }
+
+    true
+}
+
+#[wasm_bindgen]
+pub fn sieve_primes_wasm(max: usize) -> Vec<u32> {
+    if max < 2 { return Vec::new(); }
+    let mut is_prime = vec![true; max + 1];
+    is_prime[0] = false;
+    is_prime[1] = false;
+
+    for i in 2..=(max as f64).sqrt() as usize {
+        if is_prime[i] {
+            let mut j = i * i;
+            while j <= max {
+                is_prime[j] = false;
+                j += i;
+            }
+        }
+    }
+    is_prime.into_iter().enumerate().filter(|&(_, p)| p).map(|(i, _)| i as u32).collect()
+}
+
+#[wasm_bindgen]
+pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec<u8>> {
+    let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));
+    if n == Int::from(0) || n == Int::from(1) { return None; }
+    let mont = MontgomerySpace::new(n);
+    let mut prng = Xoroshiro128PlusPlus::new();
+
+    let b1_big = Int::from(b1);
+    let b2_big = Int::from(b1 * 10);
+
+    let mut p1_primes = Vec::new();
+    let mut p2_primes = Vec::new();
+
+    for &p in primes {
+        let p_int = Int::from(p);
+        if p_int <= b1_big {
+            p1_primes.push(p);
+        } else if p_int <= b2_big {
+            p2_primes.push(p);
+        } else {
+            break;
+        }
+    }
+
+    let r_idx = (prng.next() as usize) % core::cmp::max(1, core::cmp::min(100, primes.len()));
+    let base_prime = Int::from(*primes.get(r_idx).unwrap_or(&2));
+    let mut a = mont.transform(base_prime);
+
+    // Phase 1
+    for &p in &p1_primes {
+        let mut q = p as u64;
+        let p_u64 = p as u64;
+        while q.saturating_mul(p_u64) <= b1 as u64 {
+            q *= p_u64;
+        }
+
+        let mut res = mont.transform(Int::from(1));
+        let mut base_pow = a;
+        let mut exp = q;
+        while exp > 0 {
+            if exp & 1 == 1 {
+                res = mont.mul(res, base_pow);
+            }
+            base_pow = mont.mul(base_pow, base_pow);
+            exp >>= 1;
+        }
+        a = res;
+    }
+
+    let res = mont.reduce(DoubleInt::from(a));
+    let g1 = gcd(if res >= Int::from(1) { res - Int::from(1) } else { n - Int::from(1) }, n);
+
+    if g1 > Int::from(1) && g1 < n {
+        return Some(g1.to_le_bytes::<32>().to_vec());
+    }
+    if g1 == n || p2_primes.is_empty() {
+        return None;
+    }
+
+    // Phase 2
+    let a_val = mont.reduce(DoubleInt::from(a));
+    if a_val == Int::from(1) { return None; }
+
+    let max_gap = 200usize;
+    let mut a_d = vec![mont.transform(Int::from(0)); max_gap / 2 + 1];
+    let a_2 = mont.mul(a, a);
+    a_d[1] = a_2;
+    for i in 2..=(max_gap / 2) {
+        a_d[i] = mont.mul(a_d[i - 1], a_2);
+    }
+
+    let mut current_q = p1_primes.last().cloned().unwrap_or(2) as u64;
+
+    let mut res = mont.transform(Int::from(1));
+    let mut base_pow = a;
+    let mut exp = current_q;
+    while exp > 0 {
+        if exp & 1 == 1 {
+            res = mont.mul(res, base_pow);
+        }
+        base_pow = mont.mul(base_pow, base_pow);
+        exp >>= 1;
+    }
+    let mut a_q = res;
+
+    let mut acc = mont.transform(Int::from(1));
+    let mut iters_since_check = 0;
+
+    for &next_q in &p2_primes {
+        let diff = next_q as isize - current_q as isize;
+        if diff as usize > max_gap {
+            let mut res2 = mont.transform(Int::from(1));
+            let mut base_pow2 = a;
+            let mut exp2 = next_q as u64;
+            while exp2 > 0 {
+                if exp2 & 1 == 1 {
+                    res2 = mont.mul(res2, base_pow2);
+                }
+                base_pow2 = mont.mul(base_pow2, base_pow2);
+                exp2 >>= 1;
+            }
+            a_q = res2;
+        } else {
+            a_q = mont.mul(a_q, a_d[diff as usize / 2]);
+        }
+        current_q = next_q as u64;
+
+        let one_mont = mont.transform(Int::from(1));
+        let term = mont.sub(a_q, one_mont);
+        acc = mont.mul(acc, term);
+        iters_since_check += 1;
+
+        if iters_since_check > 256 {
+            let g2 = gcd(mont.reduce(DoubleInt::from(acc)), n);
+            if g2 > Int::from(1) && g2 < n {
+                return Some(g2.to_le_bytes::<32>().to_vec());
+            }
+            if g2 == n { break; }
+            acc = mont.transform(Int::from(1));
+            iters_since_check = 0;
+        }
+    }
+    let g2 = gcd(mont.reduce(DoubleInt::from(acc)), n);
+    if g2 > Int::from(1) && g2 < n {
+        Some(g2.to_le_bytes::<32>().to_vec())
+    } else {
+        None
+    }
+}
+
 #[wasm_bindgen]
 pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> {
     let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));

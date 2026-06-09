@@ -6,6 +6,18 @@ let wasm_bindgen = (function(exports) {
 
     /**
      * @param {Uint8Array} n_bytes
+     * @returns {boolean}
+     */
+    function is_prime_bpsw_bytes(n_bytes) {
+        const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.is_prime_bpsw_bytes(ptr0, len0);
+        return ret !== 0;
+    }
+    exports.is_prime_bpsw_bytes = is_prime_bpsw_bytes;
+
+    /**
+     * @param {Uint8Array} n_bytes
      * @param {number} max_iters
      * @returns {Uint8Array | undefined}
      */
@@ -25,6 +37,27 @@ let wasm_bindgen = (function(exports) {
     /**
      * @param {Uint8Array} n_bytes
      * @param {number} b1
+     * @param {Uint32Array} primes
+     * @returns {Uint8Array | undefined}
+     */
+    function pollard_p1_bytes(n_bytes, b1, primes) {
+        const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray32ToWasm0(primes, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.pollard_p1_bytes(ptr0, len0, b1, ptr1, len1);
+        let v3;
+        if (ret[0] !== 0) {
+            v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v3;
+    }
+    exports.pollard_p1_bytes = pollard_p1_bytes;
+
+    /**
+     * @param {Uint8Array} n_bytes
+     * @param {number} b1
      * @param {number} max_curves
      * @returns {Uint8Array | undefined}
      */
@@ -40,6 +73,18 @@ let wasm_bindgen = (function(exports) {
         return v2;
     }
     exports.run_ecm_bytes = run_ecm_bytes;
+
+    /**
+     * @param {number} max
+     * @returns {Uint32Array}
+     */
+    function sieve_primes_wasm(max) {
+        const ret = wasm.sieve_primes_wasm(max);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    exports.sieve_primes_wasm = sieve_primes_wasm;
     function __wbg_get_imports() {
         const import0 = {
             __proto__: null,
@@ -160,6 +205,11 @@ let wasm_bindgen = (function(exports) {
         return idx;
     }
 
+    function getArrayU32FromWasm0(ptr, len) {
+        ptr = ptr >>> 0;
+        return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+    }
+
     function getArrayU8FromWasm0(ptr, len) {
         ptr = ptr >>> 0;
         return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
@@ -167,6 +217,14 @@ let wasm_bindgen = (function(exports) {
 
     function getStringFromWasm0(ptr, len) {
         return decodeText(ptr >>> 0, len);
+    }
+
+    let cachedUint32ArrayMemory0 = null;
+    function getUint32ArrayMemory0() {
+        if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+            cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+        }
+        return cachedUint32ArrayMemory0;
     }
 
     let cachedUint8ArrayMemory0 = null;
@@ -190,6 +248,13 @@ let wasm_bindgen = (function(exports) {
         return x === undefined || x === null;
     }
 
+    function passArray32ToWasm0(arg, malloc) {
+        const ptr = malloc(arg.length * 4, 4) >>> 0;
+        getUint32ArrayMemory0().set(arg, ptr / 4);
+        WASM_VECTOR_LEN = arg.length;
+        return ptr;
+    }
+
     function passArray8ToWasm0(arg, malloc) {
         const ptr = malloc(arg.length * 1, 1) >>> 0;
         getUint8ArrayMemory0().set(arg, ptr / 1);
@@ -210,6 +275,7 @@ let wasm_bindgen = (function(exports) {
         wasmInstance = instance;
         wasm = instance.exports;
         wasmModule = module;
+        cachedUint32ArrayMemory0 = null;
         cachedUint8ArrayMemory0 = null;
         wasm.__wbindgen_start();
         return wasm;

@@ -1,4 +1,4 @@
-importScripts('../core/math.js', 'context.js', 'pollard.js', 'ecm.js', 'siqs.js');
+importScripts('../core/math.js', 'math_utils.js', 'context.js', 'siqs.js');
 
 // Load WASM
 let wasmModule;
@@ -14,7 +14,7 @@ self.onmessage = async (e) => {
     const data = e.data;
     if (data.cmd === "INIT") {
         ctx.workerId = data.workerId;
-        ctx.sievedPrimes = sievePrimes(data.params.sieveLimit);
+        ctx.sievedPrimes = wasm_bindgen.sieve_primes_wasm(data.params.sieveLimit);
         postMessage({ type: "LOG", msg: "Core online & Primes sieved.", level: "sys", workerId: ctx.workerId });
     }
     else if (data.cmd === "STOP") {
@@ -30,8 +30,8 @@ self.onmessage = async (e) => {
         let params = data.params;
         try {
             ctx.sendPhase("BPSW Test", "Primality check", true);
-            let mont = new MontgomerySpace(M);
-            if (isPrimeBPSW(M, mont)) {
+            let n_bytes = bigIntToBytesLE(M);
+            if (wasm_bindgen.is_prime_bpsw_bytes(n_bytes)) {
                 if (ctx.workerId === 0) postMessage({ type: "PRIME_FOUND", target: M, workerId: ctx.workerId });
                 return;
             }
@@ -50,23 +50,35 @@ self.onmessage = async (e) => {
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
             if (params.p1Limit > 0) {
+                ctx.sendPhase("Pollard P-1 (WASM)", "Limit=" + params.p1Limit, true);
+                let primesArr = new Uint32Array(ctx.sievedPrimes);
+                let p1FactorBytes = wasm_bindgen.pollard_p1_bytes(n_bytes, params.p1Limit, primesArr);
+                if (p1FactorBytes) {
+                    let p1FactorBigInt = bytesToBigIntLE(p1FactorBytes);
+                    postMessage({ type: "FACTOR_FOUND", factor: p1FactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "P-1 (WASM)" });
+                    return;
+                }
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
             if (params.rhoLimit > 0) {
                 ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
 
                 // --- WASM INTEGRATION ---
-                let rhoFactorStr = wasm_bindgen.pollard_brent(M.toString(), params.rhoLimit);
+                let rhoFactorBytes = wasm_bindgen.pollard_brent_bytes(n_bytes, params.rhoLimit);
 
-                if (rhoFactorStr) {
-                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactorStr, target: M, workerId: ctx.workerId, method: "Rho (WASM)" });
+                if (rhoFactorBytes) {
+                    let rhoFactorBigInt = bytesToBigIntLE(rhoFactorBytes);
+                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "Rho (WASM)" });
                     return;
                 }
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
-            let ecmRes = await runECM(M, params.b1, params.maxCurves, mont, ctx);
-            if (ecmRes && ecmRes.success) {
-                postMessage({ type: "FACTOR_FOUND", factor: ecmRes.factor, target: M, workerId: ctx.workerId, method: "ECM" });
+            ctx.sendPhase("ECM Phase (WASM)", "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
+            let ecmFactorBytes = wasm_bindgen.run_ecm_bytes(n_bytes, params.b1, params.maxCurves);
+
+            if (ecmFactorBytes) {
+                let ecmFactorBigInt = bytesToBigIntLE(ecmFactorBytes);
+                postMessage({ type: "FACTOR_FOUND", factor: ecmFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "ECM (WASM)" });
                 return;
             }
             if (!ctx.shouldStop) {
