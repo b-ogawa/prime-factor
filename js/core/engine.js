@@ -149,8 +149,13 @@ class FactorizationEngine extends EventEmitter {
                 let f1 = BigInt(data.factor);
                 let f2 = this.activeTarget / f1;
                 this.emit('log', `[FACTOR DISCOVERED] Found by Core ${data.workerId} via ${data.method}: ${f1.toString()}`, 'success');
-                this.queue.push(f1);
-                this.queue.push(f2);
+                if (f1 === this.activeTarget) {
+                    this.factors.push(f1);
+                    this.emit('renderFactors', this.factors, this.unresolved);
+                } else {
+                    this.queue.push(f1);
+                    this.queue.push(f2);
+                }
                 this.activeTarget = null;
                 this.stopWorkersAndResume();
             }
