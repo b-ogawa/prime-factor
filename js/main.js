@@ -3,7 +3,10 @@
 let engine;
 let ui;
 
-window.onload = () => {
+window.onload = async () => {
+    // Initialize WASM module on the main thread for SIQS Coordinator
+    await wasm_bindgen({ module_or_path: 'js/wasm/wasm_engine_bg.wasm' });
+
     ui = new UIController();
     engine = new FactorizationEngine();
 

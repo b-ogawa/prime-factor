@@ -1,2 +1,9 @@
+node_modules/
 target/
 wasm_engine/target/
+.DS_Store
+package-lock.json
+
+node_modules
+wasm_engine/pkg/
+playwright-test.js

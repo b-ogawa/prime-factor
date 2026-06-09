@@ -77,6 +77,10 @@ class SIQSCoordinator {
         this.FB = FB;
         this.targetCount = FB.length + 15;
 
+        let n_bytes = bigIntToBytesLE(kN);
+        let fb_arr = new Uint32Array(FB.map(f => f.p));
+        this.wasmReducer = wasm_bindgen.SiqsReducer.new(n_bytes, fb_arr);
+
         // Dispatch tasks
         this.engine.workers.forEach(w => {
             w.postMessage({
@@ -102,6 +106,18 @@ class SIQSCoordinator {
             this.relationSignatures.add(sig);
             this.relations.push(data.rel);
 
+            // Add relation to WASM reducer
+            let nBig = BigInt(this.engine.activeTarget);
+            let xBig = BigInt(data.rel.x);
+            // Normalize x mod n to avoid negative number serialization issues
+            xBig = (xBig % nBig + nBig) % nBig;
+
+            let xBytes = bigIntToBytesLE(xBig);
+            let bBytes = bigIntToBytesLE(BigInt(data.rel.B));
+            let aBytes = data.rel.A ? bigIntToBytesLE(BigInt(data.rel.A)) : new Uint8Array(0);
+            let factorsArr = new Uint32Array(data.rel.factors);
+            this.wasmReducer.add_relation(data.rel.sign, xBytes, bBytes, aBytes, factorsArr);
+
             let speed = Math.round((this.relations.length / Math.max(1, Date.now() - this.startTime)) * 1000);
             this.engine.emit('updateSIQSProgress', this.relations.length, this.targetCount, data.polyCount, speed);
 
@@ -118,13 +134,14 @@ class SIQSCoordinator {
     reduceMatrix() {
         if (!this.active || !this.engine.activeTarget) return;
 
-        this.engine.emit('log', "[SIQS] Running Bit-packed Gaussian Elimination on binary matrix...", "sys");
-        this.engine.emit('updateStatus', "SIQS: Reducing Matrix");
+        this.engine.emit('log', "[SIQS] Running WASM Bit-packed Gaussian Elimination & Evaluation...", "sys");
+        this.engine.emit('updateStatus', "SIQS: Reducing Matrix (WASM)");
 
-        let deps = this.solveMatrixBitpacked();
-        this.engine.emit('log', `[SIQS] Found ${deps.length} linear dependencies. Testing modular square roots...`, "sys");
+        let factorBytes = this.wasmReducer.reduce_matrix();
+        let factor = factorBytes ? bytesToBigIntLE(factorBytes) : null;
 
-        let factor = this.evaluateDependencies(deps);
+        // Free WASM memory
+        this.wasmReducer.free();
 
         if (factor && factor > 1n) {
             let f1 = gcd(factor, this.engine.activeTarget);
@@ -155,138 +172,5 @@ class SIQSCoordinator {
         }));
     }
 
-    // Bit-packed Gaussian Elimination
-    solveMatrixBitpacked() {
-        let numCols = this.FB.length + 1; // Col 0: Sign, Col 1..: FB Primes
-        let numRows = this.relations.length;
-        let words = Math.ceil(numCols / 32);
 
-        // No Col Mapping needed since factors are now FB indices directly!
-        // Index -1 represents the sign.
-
-        let M = [];
-        let ID = [];
-
-        let idWords = Math.ceil(numRows / 32);
-
-        for (let i = 0; i < numRows; i++) {
-            let r = new Uint32Array(words);
-            let id = new Uint32Array(idWords);
-            id[Math.floor(i / 32)] |= (1 << (i % 32)); // Identity element
-
-            let rel = this.relations[i];
-            if (rel.sign === -1) r[0] |= 1; // Sign index
-
-            for (let fIdx of rel.factors) {
-                let colIdx = fIdx + 1; // +1 because col 0 is the sign
-                let wIdx = Math.floor(colIdx / 32);
-                let bIdx = colIdx % 32;
-                r[wIdx] ^= (1 << bIdx); // mod 2 addition
-            }
-            M.push(r);
-            ID.push(id);
-        }
-
-        let numPivots = 0;
-        for (let c = 0; c < numCols; c++) {
-            let wIdx = Math.floor(c / 32);
-            let bIdx = c % 32;
-
-            let r = -1;
-            for (let i = numPivots; i < numRows; i++) {
-                if ((M[i][wIdx] & (1 << bIdx)) !== 0) {
-                    r = i; break;
-                }
-            }
-            if (r !== -1) {
-                // Row Swap
-                let tempM = M[numPivots]; M[numPivots] = M[r]; M[r] = tempM;
-                let tempID = ID[numPivots]; ID[numPivots] = ID[r]; ID[r] = tempID;
-
-                // Elimination
-                for (let i = 0; i < numRows; i++) {
-                    if (i !== numPivots) {
-                        if ((M[i][wIdx] & (1 << bIdx)) !== 0) {
-                            for (let w = 0; w < words; w++) M[i][w] ^= M[numPivots][w];
-                            for (let w = 0; w < idWords; w++) ID[i][w] ^= ID[numPivots][w];
-                        }
-                    }
-                }
-                numPivots++;
-            }
-        }
-
-        // Collect Dependencies
-        let dependencies = [];
-        for (let i = numPivots; i < numRows; i++) {
-            let dep = [];
-            for (let j = 0; j < numRows; j++) {
-                if ((ID[i][Math.floor(j / 32)] & (1 << (j % 32))) !== 0) {
-                    dep.push(j);
-                }
-            }
-            if (dep.length > 0) dependencies.push(dep);
-        }
-        return dependencies;
-    }
-
-    // Solve dependencies
-    evaluateDependencies(deps) {
-        if (!this.engine.activeTarget) return null;
-        let N_big = BigInt(this.engine.activeTarget);
-        for (let d = 0; d < deps.length; d++) {
-            let dep = deps[d];
-            let X = 1n;
-
-            // Exponent trackers
-            let exponentSum = new Int32Array(this.FB.length + 1); // index 0 is sign, 1..FB.length are primes
-
-            for (let idx of dep) {
-                let rel = this.relations[idx];
-                let relX = BigInt(rel.x);
-                let relB = BigInt(rel.B);
-
-                let relA = 1n;
-                if (rel.A !== undefined && rel.A !== null && rel.A !== "") {
-                    relA = BigInt(rel.A);
-                }
-                let term = (relA * relX + relB) % N_big;
-                if (term < 0n) term += N_big;
-                X = (X * term) % N_big;
-
-                if (rel.sign === -1 || rel.sign === "-1") exponentSum[0]++;
-                for (let fIdx of rel.factors) {
-                    exponentSum[fIdx + 1]++;
-                }
-            }
-
-            // Verify and compute square root Y
-            let Y = 1n;
-            let success = true;
-            for (let i = 1; i <= this.FB.length; i++) {
-                let count = exponentSum[i];
-                if (count % 2 !== 0) {
-                    success = false; break; // odd exponent detected
-                }
-                if (count > 0) {
-                    let half = BigInt(Math.floor(count / 2));
-                    let prime = BigInt(this.FB[i - 1].p);
-                    Y = (Y * powMod(prime, half, N_big)) % N_big;
-                }
-            }
-            if (!success) continue;
-
-            // GCD check
-            let diff = (X - Y) % N_big;
-            if (diff < 0n) diff += N_big;
-            let g = gcd(diff, N_big);
-            if (g > 1n && g < N_big) return g;
-
-            let sum = (X + Y) % N_big;
-            if (sum < 0n) sum += N_big;
-            g = gcd(sum, N_big);
-            if (g > 1n && g < N_big) return g;
-        }
-        return null;
-    }
 }

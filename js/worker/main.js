@@ -1,20 +1,36 @@
-importScripts('../core/math.js', 'math_utils.js', 'context.js', 'siqs.js');
+importScripts('../core/math.js', '../core/math_utils.js', 'context.js', 'siqs.js');
 
 // Load WASM
 let wasmModule;
+let wasmReadyPromise;
 importScripts('../wasm/wasm_engine.js');
-wasm_bindgen({ module_or_path: '../wasm/wasm_engine_bg.wasm' }).then((module) => {
-    wasmModule = module;
-    // Notify main thread that worker is ready
-    postMessage({ type: "WASM_READY", workerId: ctx.workerId });
-}).catch(console.error);
+if (typeof wasm_bindgen === 'function') {
+    wasmReadyPromise = wasm_bindgen({ module_or_path: '../wasm/wasm_engine_bg.wasm' }).then((module) => {
+        wasmModule = module;
+        postMessage({ type: "WASM_READY", workerId: ctx.workerId });
+    }).catch(console.error);
+} else {
+    // If we're here, it might be that the module format is different.
+    console.error("wasm_bindgen is not a function in the worker!");
+}
 
 // Main Worker Routine
 self.onmessage = async (e) => {
     const data = e.data;
     if (data.cmd === "INIT") {
         ctx.workerId = data.workerId;
-        ctx.sievedPrimes = wasm_bindgen.sieve_primes_wasm(data.params.sieveLimit);
+
+        let sieveLimit = data.params.sieveLimit;
+        // The worker is likely receiving INIT before WASM is fully loaded.
+        // We will wait if it's not ready yet.
+        const initSieve = async () => {
+            if (wasmReadyPromise) await wasmReadyPromise;
+            // Now use the bound exports from the module
+            ctx.sievedPrimes = wasm_bindgen.sieve_primes_wasm(sieveLimit);
+            postMessage({ type: "LOG", msg: "Core online & Primes sieved.", level: "sys", workerId: ctx.workerId });
+        };
+        initSieve();
+
         postMessage({ type: "LOG", msg: "Core online & Primes sieved.", level: "sys", workerId: ctx.workerId });
     }
     else if (data.cmd === "STOP") {
@@ -39,8 +55,9 @@ self.onmessage = async (e) => {
                 ctx.sendPhase("Trial Div", "up to " + params.trialLimit, true);
                 let currentVal = M;
                 for (let p of ctx.sievedPrimes) {
-                    if (p > params.trialLimit) break;
-                    if (currentVal % p === 0n) {
+                    let pBig = BigInt(p);
+                    if (pBig > BigInt(params.trialLimit)) break;
+                    if (currentVal % pBig === 0n) {
                         postMessage({ type: "FACTOR_FOUND", factor: p, target: M, workerId: ctx.workerId, method: "Trial Division" });
                         return;
                     }
@@ -74,13 +91,33 @@ self.onmessage = async (e) => {
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
             ctx.sendPhase("ECM Phase (WASM)", "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
-            let ecmFactorBytes = wasm_bindgen.run_ecm_bytes(n_bytes, params.b1, params.maxCurves);
 
-            if (ecmFactorBytes) {
-                let ecmFactorBigInt = bytesToBigIntLE(ecmFactorBytes);
-                postMessage({ type: "FACTOR_FOUND", factor: ecmFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "ECM (WASM)" });
-                return;
+            // --- WASM INTEGRATION: Stateful / Non-blocking ---
+            let ecmRunner = wasm_bindgen.EcmRunner.new(n_bytes, params.b1);
+            let chunk_size = 10; // Run 10 curves at a time to prevent blocking the event loop
+            let curves_run = 0;
+
+            while (curves_run < params.maxCurves) {
+                if (ctx.shouldStop) {
+                    ecmRunner.free();
+                    return;
+                }
+
+                let curves_to_run = Math.min(chunk_size, params.maxCurves - curves_run);
+                ctx.sendPhase("ECM Phase (WASM)", "Curves " + curves_run + " / " + params.maxCurves, true);
+
+                let ecmFactorBytes = ecmRunner.run_curves(curves_to_run);
+                if (ecmFactorBytes) {
+                    let ecmFactorBigInt = bytesToBigIntLE(ecmFactorBytes);
+                    postMessage({ type: "FACTOR_FOUND", factor: ecmFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "ECM (WASM)" });
+                    ecmRunner.free();
+                    return;
+                }
+
+                curves_run += curves_to_run;
+                await ctx.yieldIfNeeded();
             }
+            ecmRunner.free();
             if (!ctx.shouldStop) {
                 postMessage({ type: "EXHAUSTED", target: M, workerId: ctx.workerId });
             }

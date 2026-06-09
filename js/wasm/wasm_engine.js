@@ -4,6 +4,105 @@ let wasm_bindgen = (function(exports) {
         script_src = new URL(document.currentScript.src, location.href).toString();
     }
 
+    class EcmRunner {
+        __destroy_into_raw() {
+            const ptr = this.__wbg_ptr;
+            this.__wbg_ptr = 0;
+            EcmRunnerFinalization.unregister(this);
+            return ptr;
+        }
+        free() {
+            const ptr = this.__destroy_into_raw();
+            wasm.__wbg_ecmrunner_free(ptr, 0);
+        }
+        /**
+         * @param {Uint8Array} n_bytes
+         * @param {number} b1
+         */
+        constructor(n_bytes, b1) {
+            const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ret = wasm.ecmrunner_new(ptr0, len0, b1);
+            this.__wbg_ptr = ret;
+            EcmRunnerFinalization.register(this, this.__wbg_ptr, this);
+            return this;
+        }
+        /**
+         * @param {number} curves_to_run
+         * @returns {Uint8Array | undefined}
+         */
+        run_curves(curves_to_run) {
+            const ret = wasm.ecmrunner_run_curves(this.__wbg_ptr, curves_to_run);
+            let v1;
+            if (ret[0] !== 0) {
+                v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+                wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+            }
+            return v1;
+        }
+    }
+    if (Symbol.dispose) EcmRunner.prototype[Symbol.dispose] = EcmRunner.prototype.free;
+    exports.EcmRunner = EcmRunner;
+
+    class SiqsReducer {
+        __destroy_into_raw() {
+            const ptr = this.__wbg_ptr;
+            this.__wbg_ptr = 0;
+            SiqsReducerFinalization.unregister(this);
+            return ptr;
+        }
+        free() {
+            const ptr = this.__destroy_into_raw();
+            wasm.__wbg_siqsreducer_free(ptr, 0);
+        }
+        /**
+         * @param {number} sign
+         * @param {Uint8Array} x_bytes
+         * @param {Uint8Array} b_bytes
+         * @param {Uint8Array} a_bytes
+         * @param {Uint32Array} factors
+         */
+        add_relation(sign, x_bytes, b_bytes, a_bytes, factors) {
+            const ptr0 = passArray8ToWasm0(x_bytes, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArray8ToWasm0(b_bytes, wasm.__wbindgen_malloc);
+            const len1 = WASM_VECTOR_LEN;
+            const ptr2 = passArray8ToWasm0(a_bytes, wasm.__wbindgen_malloc);
+            const len2 = WASM_VECTOR_LEN;
+            const ptr3 = passArray32ToWasm0(factors, wasm.__wbindgen_malloc);
+            const len3 = WASM_VECTOR_LEN;
+            wasm.siqsreducer_add_relation(this.__wbg_ptr, sign, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        }
+        /**
+         * @param {Uint8Array} n_bytes
+         * @param {Uint32Array} fb_primes
+         */
+        constructor(n_bytes, fb_primes) {
+            const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArray32ToWasm0(fb_primes, wasm.__wbindgen_malloc);
+            const len1 = WASM_VECTOR_LEN;
+            const ret = wasm.siqsreducer_new(ptr0, len0, ptr1, len1);
+            this.__wbg_ptr = ret;
+            SiqsReducerFinalization.register(this, this.__wbg_ptr, this);
+            return this;
+        }
+        /**
+         * @returns {Uint8Array | undefined}
+         */
+        reduce_matrix() {
+            const ret = wasm.siqsreducer_reduce_matrix(this.__wbg_ptr);
+            let v1;
+            if (ret[0] !== 0) {
+                v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+                wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+            }
+            return v1;
+        }
+    }
+    if (Symbol.dispose) SiqsReducer.prototype[Symbol.dispose] = SiqsReducer.prototype.free;
+    exports.SiqsReducer = SiqsReducer;
+
     /**
      * @param {Uint8Array} n_bytes
      * @returns {boolean}
@@ -54,25 +153,6 @@ let wasm_bindgen = (function(exports) {
         return v3;
     }
     exports.pollard_p1_bytes = pollard_p1_bytes;
-
-    /**
-     * @param {Uint8Array} n_bytes
-     * @param {number} b1
-     * @param {number} max_curves
-     * @returns {Uint8Array | undefined}
-     */
-    function run_ecm_bytes(n_bytes, b1, max_curves) {
-        const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
-        const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.run_ecm_bytes(ptr0, len0, b1, max_curves);
-        let v2;
-        if (ret[0] !== 0) {
-            v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        }
-        return v2;
-    }
-    exports.run_ecm_bytes = run_ecm_bytes;
 
     /**
      * @param {number} max
@@ -198,6 +278,13 @@ let wasm_bindgen = (function(exports) {
             "./wasm_engine_bg.js": import0,
         };
     }
+
+    const EcmRunnerFinalization = (typeof FinalizationRegistry === 'undefined')
+        ? { register: () => {}, unregister: () => {} }
+        : new FinalizationRegistry(ptr => wasm.__wbg_ecmrunner_free(ptr, 1));
+    const SiqsReducerFinalization = (typeof FinalizationRegistry === 'undefined')
+        ? { register: () => {}, unregister: () => {} }
+        : new FinalizationRegistry(ptr => wasm.__wbg_siqsreducer_free(ptr, 1));
 
     function addToExternrefTable0(obj) {
         const idx = wasm.__externref_table_alloc();
