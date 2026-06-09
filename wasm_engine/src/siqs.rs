@@ -23,7 +23,7 @@ impl SiqsWorker {
     pub fn new(kn_bytes: &[u8], fb_primes: &[u32], fb_logs: &[u8], fb_r_bytes: &[u8], sieve_limit: usize, worker_id: usize) -> Self {
         let kn = int_from_le_slice(kn_bytes);
         let fb_len = fb_primes.len();
-
+        
         let mut fb_r = Vec::with_capacity(fb_len);
         for i in 0..fb_len {
             let start = i * 32;
@@ -97,7 +97,7 @@ impl SiqsWorker {
         let fb_len = self.fb.len();
         let s = self.s_val;
         let mut q_indices = vec![0usize; s];
-
+        
         for _batch in 0..batch_size {
             // Pick s primes randomly to form A. We avoid duplicates.
             let mut used = vec![false; fb_len];
@@ -156,7 +156,7 @@ impl SiqsWorker {
 
                 let p = self.fb[j];
                 let p_int = Int::from(p);
-
+                
                 // a_inv = Product of q_inv_table
                 let mut a_inv = 1u64;
                 for i in 0..s {
@@ -173,7 +173,7 @@ impl SiqsWorker {
 
                 x1_p[j] = ((a_inv * x1_num) % (p as u64)) as u32;
                 x2_p[j] = ((a_inv * x2_num) % (p as u64)) as u32;
-
+                
                 x1_p[j] = (x1_p[j] + (self.m as u32)) % p;
                 x2_p[j] = (x2_p[j] + (self.m as u32)) % p;
 
@@ -196,7 +196,7 @@ impl SiqsWorker {
                     nu[k] = -nu[k];
                     if nu[k] == -1 {
                         let sub_val = (Int::from(2) * b_i_prime[k]) % a_val;
-                        b_val = if b_val >= sub_val { b_val - sub_val } else { b_val + a_val - sub_val };
+                        b_val = if b_val >= sub_val { b_val - sub_val } else { (a_val - sub_val) + b_val };
                         for j in 0..fb_len {
                             if a_inv_p[j] == 0 { continue; }
                             let dx = delta_x[k][j];
@@ -232,20 +232,20 @@ impl SiqsWorker {
                 };
                 let c_is_neg = b2 < DoubleInt::from(self.kn);
 
-                let mut sieve = vec![0u8; self.sieve_limit];
+                let mut sieve = vec![0u16; self.sieve_limit];
                 for j in 0..fb_len {
                     if a_inv_p[j] == 0 { continue; }
                     let p = self.fb[j] as usize;
-                    let log_p = self.fb_log[j];
+                    let log_p = self.fb_log[j] as u16;
                     let mut idx1 = x1_p[j] as usize;
                     while idx1 < self.sieve_limit {
-                        sieve[idx1] += log_p;
+                        sieve[idx1] = sieve[idx1].saturating_add(log_p);
                         idx1 += p;
                     }
                     if p > 2 {
                         let mut idx2 = x2_p[j] as usize;
                         while idx2 < self.sieve_limit {
-                            sieve[idx2] += log_p;
+                            sieve[idx2] = sieve[idx2].saturating_add(log_p);
                             idx2 += p;
                         }
                     }
@@ -257,10 +257,10 @@ impl SiqsWorker {
                 let buffer = 8 * (31 - self.fb.last().unwrap().leading_zeros()); // log2 of max p
                 let mut threshold = ((log2_a_actual as i32 + 2 * log2_m_approx as i32) * 8) - buffer as i32;
                 if threshold < 0 { threshold = 0; }
-                let threshold_u8 = core::cmp::min(255, threshold) as u8;
+                let threshold_u16 = core::cmp::min(65535, threshold) as u16;
 
                 for i in 0..self.sieve_limit {
-                    if sieve[i] >= threshold_u8 {
+                    if sieve[i] >= threshold_u16 {
                         let x = if i >= self.m {
                             Int::from(i - self.m)
                         } else {
@@ -271,7 +271,7 @@ impl SiqsWorker {
                         let ax = a_val * x;
                         let ax2 = ax * x;
                         let bx2 = Int::from(2) * b_val * x;
-
+                        
                         // val = ax2 +- bx2 +- C
                         let mut val = ax2;
                         if x_is_neg {
@@ -279,23 +279,23 @@ impl SiqsWorker {
                         } else {
                             val = val + bx2;
                         }
-
+                        
                         // We will do a simpler approach: Just do signed evaluation
                         // A*x^2 + 2Bx + C
                         // x can be negative
                         let mut val_sign = 1i32;
                         let mut temp = Int::from(0);
-
+                        
                         let x_isize = (i as isize) - (self.m as isize);
-
+                        
                         // DoubleInt for safety
                         let ax2_double = DoubleInt::from(a_val) * DoubleInt::from(x) * DoubleInt::from(x);
                         let bx2_double = DoubleInt::from(Int::from(2)) * DoubleInt::from(b_val) * DoubleInt::from(x);
                         let c_double = DoubleInt::from(c_val);
-
+                        
                         let mut sum = ax2_double;
                         if x_is_neg {
-                            if sum >= bx2_double { sum = sum - bx2_double; }
+                            if sum >= bx2_double { sum = sum - bx2_double; } 
                             else { sum = bx2_double - sum; val_sign = -1; }
                         } else {
                             sum = sum + bx2_double;
@@ -318,7 +318,7 @@ impl SiqsWorker {
                         }
 
                         temp = Int::from_limbs(sum.as_limbs()[..4].try_into().unwrap());
-
+                        
                         let mut factors = Vec::new();
                         for j in 0..fb_len {
                             let p = Int::from(self.fb[j]);
@@ -338,13 +338,13 @@ impl SiqsWorker {
                             Reflect::set(&rel_obj, &JsValue::from_str("A"), &JsValue::from_str(&a_val.to_string())).unwrap();
                             Reflect::set(&rel_obj, &JsValue::from_str("B"), &JsValue::from_str(&b_val.to_string())).unwrap();
                             Reflect::set(&rel_obj, &JsValue::from_str("sign"), &JsValue::from_f64(val_sign as f64)).unwrap();
-
+                            
                             let js_factors = Array::new();
                             for f in factors {
                                 js_factors.push(&JsValue::from_f64(f as f64));
                             }
                             Reflect::set(&rel_obj, &JsValue::from_str("factors"), &js_factors).unwrap();
-
+                            
                             relations.push(&rel_obj);
                         } else {
                             // Partial relation
@@ -359,13 +359,13 @@ impl SiqsWorker {
                                 Reflect::set(&rel_obj, &JsValue::from_str("B"), &JsValue::from_str(&b_val.to_string())).unwrap();
                                 Reflect::set(&rel_obj, &JsValue::from_str("sign"), &JsValue::from_f64(val_sign as f64)).unwrap();
                                 Reflect::set(&rel_obj, &JsValue::from_str("largePrime"), &JsValue::from_str(&temp.to_string())).unwrap();
-
+                                
                                 let js_factors = Array::new();
                                 for f in factors {
                                     js_factors.push(&JsValue::from_f64(f as f64));
                                 }
                                 Reflect::set(&rel_obj, &JsValue::from_str("factors"), &js_factors).unwrap();
-
+                                
                                 relations.push(&rel_obj);
                             }
                         }
@@ -373,7 +373,7 @@ impl SiqsWorker {
                 }
             }
         }
-
+        
         let res = Object::new();
         Reflect::set(&res, &JsValue::from_str("polysSearched"), &JsValue::from_f64(polys_searched as f64)).unwrap();
         Reflect::set(&res, &JsValue::from_str("relations"), &relations).unwrap();
