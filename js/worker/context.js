@@ -25,6 +25,11 @@ class WorkerContext {
             await new Promise(r => setTimeout(r, 0));
         }
     }
+
+    async checkYieldAndStop() {
+        await this.yieldIfNeeded();
+        return this.shouldStop;
+    }
 }
 
 const ctx = new WorkerContext();

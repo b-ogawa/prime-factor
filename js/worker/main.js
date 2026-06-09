@@ -67,11 +67,10 @@ self.onmessage = async (e) => {
                         postMessage({ type: "FACTOR_FOUND", factor: p, target: M, workerId: ctx.workerId, method: "Trial Division" });
                         return;
                     }
-                    await ctx.yieldIfNeeded();
-                    if (ctx.shouldStop) return;
+                    if (await ctx.checkYieldAndStop()) return;
                 }
             }
-            await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
+            if (await ctx.checkYieldAndStop()) return;
             if (params.p1Limit > 0) {
                 ctx.sendPhase("Pollard P-1 (WASM)", "Limit=" + params.p1Limit, true);
                 let primesArr = new Uint32Array(ctx.sievedPrimes);
@@ -82,7 +81,7 @@ self.onmessage = async (e) => {
                     return;
                 }
             }
-            await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
+            if (await ctx.checkYieldAndStop()) return;
             if (params.rhoLimit > 0) {
                 ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
 
@@ -95,7 +94,7 @@ self.onmessage = async (e) => {
                     return;
                 }
             }
-            await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
+            if (await ctx.checkYieldAndStop()) return;
             ctx.sendPhase("ECM Phase (WASM)", "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
 
             // --- WASM INTEGRATION: Stateful / Non-blocking ---
@@ -104,11 +103,6 @@ self.onmessage = async (e) => {
             let curves_run = 0;
 
             while (curves_run < params.maxCurves) {
-                if (ctx.shouldStop) {
-                    ecmRunner.free();
-                    return;
-                }
-
                 let curves_to_run = Math.min(chunk_size, params.maxCurves - curves_run);
                 ctx.sendPhase("ECM Phase (WASM)", "Curves " + curves_run + " / " + params.maxCurves, true);
 
@@ -121,7 +115,10 @@ self.onmessage = async (e) => {
                 }
 
                 curves_run += curves_to_run;
-                await ctx.yieldIfNeeded();
+                if (await ctx.checkYieldAndStop()) {
+                    ecmRunner.free();
+                    return;
+                }
             }
             ecmRunner.free();
             if (!ctx.shouldStop) {
