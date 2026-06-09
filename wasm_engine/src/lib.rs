@@ -153,7 +153,8 @@ fn jacobi(mut a: Int, mut n: Int) -> i32 {
 fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
     let mut d = n - Int::from(1);
     let mut s = 0;
-    while d.as_limbs()[0] % 2 == 0 {
+    // We must check if the number is even overall, so check if the LSB of the lowest limb is 0.
+    while d.as_limbs()[0] & 1 == 0 {
         d >>= 1;
         s += 1;
     }
@@ -167,7 +168,9 @@ fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
             res = mont.mul(res, base_pow);
         }
         base_pow = mont.mul(base_pow, base_pow);
-        exp >>= 1;
+        // Correctly shift all limbs down by 1
+        let mut new_exp = exp >> 1;
+        exp = new_exp;
     }
 
     let mut x = res;

@@ -79,7 +79,7 @@ class SIQSCoordinator {
 
         let n_bytes = bigIntToBytesLE(kN);
         let fb_arr = new Uint32Array(FB.map(f => f.p));
-        this.wasmReducer = wasm_bindgen.SiqsReducer.new(n_bytes, fb_arr);
+        this.wasmReducer = new wasm_bindgen.SiqsReducer(n_bytes, fb_arr);
 
         // Dispatch tasks
         this.engine.workers.forEach(w => {

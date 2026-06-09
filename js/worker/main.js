@@ -95,7 +95,7 @@ self.onmessage = async (e) => {
             ctx.sendPhase("ECM Phase (WASM)", "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
 
             // --- WASM INTEGRATION: Stateful / Non-blocking ---
-            let ecmRunner = wasm_bindgen.EcmRunner.new(n_bytes, params.b1);
+            let ecmRunner = new wasm_bindgen.EcmRunner(n_bytes, params.b1);
             let chunk_size = 10; // Run 10 curves at a time to prevent blocking the event loop
             let curves_run = 0;
 
