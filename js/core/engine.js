@@ -42,7 +42,20 @@ class FactorizationEngine extends EventEmitter {
 
     start(inputParams) {
         let targetBig;
-        try { targetBig = BigInt(inputParams.inputStr); }
+        try {
+            let str = inputParams.inputStr.trim().toLowerCase();
+            if (/^\d+$/.test(str)) {
+                targetBig = BigInt(str);
+            } else if (/^\d+e\d+$/.test(str)) {
+                let [base, exp] = str.split('e');
+                targetBig = BigInt(base) * (10n ** BigInt(exp));
+            } else if (/^\d+(?:\^|\*\*)\d+$/.test(str)) {
+                let parts = str.split(/\^|\*\*/);
+                targetBig = BigInt(parts[0]) ** BigInt(parts[1]);
+            } else {
+                targetBig = BigInt(str); // let it throw if invalid
+            }
+        }
         catch (e) { return this.emit('log', "[Input Error] Invalid character detection.", "error"); }
         if (targetBig <= 1n) return this.emit('log', "[Input Error] N must be an integer > 1.", "error");
 
