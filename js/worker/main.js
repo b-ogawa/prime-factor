@@ -1,4 +1,4 @@
-importScripts('../core/math.js', 'math_utils.js', 'context.js', 'pollard.js', 'ecm.js', 'siqs.js');
+importScripts('../core/math.js', 'context.js', 'pollard.js', 'ecm.js', 'siqs.js');
 
 // Load WASM
 let wasmModule;
@@ -50,38 +50,25 @@ self.onmessage = async (e) => {
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
             if (params.p1Limit > 0) {
-                let p1Factor = await pollardP1(M, params.p1Limit, mont, ctx);
-                if (p1Factor) {
-                    postMessage({ type: "FACTOR_FOUND", factor: p1Factor, target: M, workerId: ctx.workerId, method: "P-1" });
-                    return;
-                }
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
             if (params.rhoLimit > 0) {
                 ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
 
                 // --- WASM INTEGRATION ---
-                let n_bytes = bigIntToBytesLE(M);
-                let rhoFactorBytes = wasm_bindgen.pollard_brent_bytes(n_bytes, params.rhoLimit);
+                let rhoFactorStr = wasm_bindgen.pollard_brent(M.toString(), params.rhoLimit);
 
-                if (rhoFactorBytes) {
-                    let rhoFactorBigInt = bytesToBigIntLE(rhoFactorBytes);
-                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "Rho (WASM)" });
+                if (rhoFactorStr) {
+                    postMessage({ type: "FACTOR_FOUND", factor: rhoFactorStr, target: M, workerId: ctx.workerId, method: "Rho (WASM)" });
                     return;
                 }
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
-
-            ctx.sendPhase("ECM Phase (WASM)", "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
-            let n_bytes_ecm = bigIntToBytesLE(M);
-            let ecmFactorBytes = wasm_bindgen.run_ecm_bytes(n_bytes_ecm, params.b1, params.maxCurves);
-
-            if (ecmFactorBytes) {
-                let ecmFactorBigInt = bytesToBigIntLE(ecmFactorBytes);
-                postMessage({ type: "FACTOR_FOUND", factor: ecmFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "ECM (WASM)" });
+            let ecmRes = await runECM(M, params.b1, params.maxCurves, mont, ctx);
+            if (ecmRes && ecmRes.success) {
+                postMessage({ type: "FACTOR_FOUND", factor: ecmRes.factor, target: M, workerId: ctx.workerId, method: "ECM" });
                 return;
             }
-
             if (!ctx.shouldStop) {
                 postMessage({ type: "EXHAUSTED", target: M, workerId: ctx.workerId });
             }

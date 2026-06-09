@@ -5,7 +5,24 @@ let ui;
 
 window.onload = () => {
     ui = new UIController();
-    engine = new FactorizationEngine(ui);
+    engine = new FactorizationEngine();
+
+    // Bind Engine Events to UI
+    engine.on('setCoreCount', (c) => ui.setCoreCount(c));
+    engine.on('initCoreUI', (c) => ui.initCoreUI(c));
+    engine.on('log', (m, t) => ui.log(m, t));
+    engine.on('updateStatus', (s, a, t) => ui.updateStatus(s, a, t));
+    engine.on('renderFactors', (f, u) => ui.renderFactors(f, u));
+    engine.on('setButtonsRunning', () => ui.setButtonsRunning());
+    engine.on('setButtonsIdle', () => ui.setButtonsIdle());
+    engine.on('hideSIQSPanel', () => ui.hideSIQSPanel());
+    engine.on('showSIQSPanel', (c) => ui.showSIQSPanel(c));
+    engine.on('updateSIQSProgress', (r, t, p, s) => ui.updateSIQSProgress(r, t, p, s));
+    engine.on('resetCoreUI', (c) => ui.resetCoreUI(c));
+    engine.on('clearLogs', () => ui.clearLogs());
+    engine.on('resetTimer', () => ui.resetTimer());
+    engine.on('updateTimer', (d) => ui.updateTimer(d));
+    engine.on('updateCoreStatus', (i, p, d) => ui.updateCoreStatus(i, p, d));
     engine.initWorkers();
 
     // Set up event listeners

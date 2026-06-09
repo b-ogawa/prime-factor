@@ -66,11 +66,11 @@ class SIQSCoordinator {
         let digits = kN.toString().length;
         let params = this.getSIQSParams(digits);
 
-        this.engine.ui.log(`[SIQS INITIATED] Target N routed to True SIQS. Multiplier k=${k}`, "sys");
-        this.engine.ui.log(`[SIQS CONFIG] Factor Base: ${params.fbSize} | Sieve Limit M: ${params.M}`, "sys");
+        this.engine.emit('log', `[SIQS INITIATED] Target N routed to True SIQS. Multiplier k=${k}`, "sys");
+        this.engine.emit('log', `[SIQS CONFIG] Factor Base: ${params.fbSize} | Sieve Limit M: ${params.M}`, "sys");
 
-        this.engine.ui.updateStatus("RUNNING", true, N.toString());
-        this.engine.ui.showSIQSPanel(params.fbSize + 15);
+        this.engine.emit('updateStatus', "RUNNING", true, N.toString());
+        this.engine.emit('showSIQSPanel', params.fbSize + 15);
 
         // Generate Factor Base using kN
         let FB = generateFactorBase(kN, params.fbSize);
@@ -103,11 +103,11 @@ class SIQSCoordinator {
             this.relations.push(data.rel);
 
             let speed = Math.round((this.relations.length / Math.max(1, Date.now() - this.startTime)) * 1000);
-            this.engine.ui.updateSIQSProgress(this.relations.length, this.targetCount, data.polyCount, speed);
+            this.engine.emit('updateSIQSProgress', this.relations.length, this.targetCount, data.polyCount, speed);
 
             if (this.relations.length >= this.targetCount) {
                 // Relations collected
-                this.engine.ui.log(`[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
+                this.engine.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
                 this.engine.stopWorkers();
 
                 setTimeout(() => this.reduceMatrix(), 10);
@@ -118,11 +118,11 @@ class SIQSCoordinator {
     reduceMatrix() {
         if (!this.active || !this.engine.activeTarget) return;
 
-        this.engine.ui.log("[SIQS] Running Bit-packed Gaussian Elimination on binary matrix...", "sys");
-        this.engine.ui.updateStatus("SIQS: Reducing Matrix");
+        this.engine.emit('log', "[SIQS] Running Bit-packed Gaussian Elimination on binary matrix...", "sys");
+        this.engine.emit('updateStatus', "SIQS: Reducing Matrix");
 
         let deps = this.solveMatrixBitpacked();
-        this.engine.ui.log(`[SIQS] Found ${deps.length} linear dependencies. Testing modular square roots...`, "sys");
+        this.engine.emit('log', `[SIQS] Found ${deps.length} linear dependencies. Testing modular square roots...`, "sys");
 
         let factor = this.evaluateDependencies(deps);
 
@@ -130,7 +130,7 @@ class SIQSCoordinator {
             let f1 = gcd(factor, this.engine.activeTarget);
             if (f1 > 1n && f1 < this.engine.activeTarget) {
                 let f2 = this.engine.activeTarget / f1;
-                this.engine.ui.log(`[SIQS SUCCESS!] Found factors: ${this.engine.ui.formatBigInt(f1)} & ${this.engine.ui.formatBigInt(f2)}`, "success");
+                this.engine.emit('log', `[SIQS SUCCESS!] Found factors: ${f1.toString()} & ${f2.toString()}`, "success");
 
                 this.engine.queue.push(f1);
                 this.engine.queue.push(f2);
@@ -141,11 +141,11 @@ class SIQSCoordinator {
                 return;
             }
         }
-        this.engine.ui.log("[SIQS FAILURE] Dependencies exhausted without non-trivial factors. Falling back to ECM.", "error");
+        this.engine.emit('log', "[SIQS FAILURE] Dependencies exhausted without non-trivial factors. Falling back to ECM.", "error");
         // Fallback to ECM
         this.active = false;
-        this.engine.ui.hideSIQSPanel();
-        this.engine.ui.log(`[FALLBACK] Dispatching ${this.engine.ui.formatBigInt(this.engine.activeTarget)} to ECM Suite...`, 'sys');
+        this.engine.emit('hideSIQSPanel');
+        this.engine.emit('log', `[FALLBACK] Dispatching ${this.engine.activeTarget.toString()} to ECM Suite...`, 'sys');
 
         this.engine.activeWorkersCount = this.engine.maxWorkers;
         this.engine.workers.forEach(w => w.postMessage({
