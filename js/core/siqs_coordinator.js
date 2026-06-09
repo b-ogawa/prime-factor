@@ -8,6 +8,7 @@ class SIQSCoordinator {
         this.startTime = null;
         this.targetCount = 0;
         this.k = 1n;
+        this.isReducing = false;
     }
 
     // SIQS Parameters Table
@@ -58,6 +59,7 @@ class SIQSCoordinator {
         this.relations = [];
         this.relationSignatures = new Set();
         this.startTime = Date.now();
+        this.isReducing = false;
 
         let k = this.chooseMultiplier(N);
         let kN = N * k;
@@ -77,9 +79,10 @@ class SIQSCoordinator {
         this.FB = FB;
         this.targetCount = FB.length + 15;
 
-        let n_bytes = bigIntToBytesLE(kN);
+        let n_bytes = bigIntToBytesLE(N);
+        let kn_bytes = bigIntToBytesLE(kN);
         let fb_arr = new Uint32Array(FB.map(f => f.p));
-        this.wasmReducer = new wasm_bindgen.SiqsReducer(n_bytes, fb_arr);
+        this.wasmReducer = new wasm_bindgen.SiqsReducer(n_bytes, kn_bytes, fb_arr);
 
         // Dispatch tasks
         this.engine.workers.forEach(w => {
@@ -174,7 +177,8 @@ class SIQSCoordinator {
             let speed = Math.round((this.relations.length / Math.max(1, Date.now() - this.startTime)) * 1000);
             this.engine.emit('updateSIQSProgress', this.relations.length, this.targetCount, data.polyCount, speed);
 
-            if (this.relations.length >= this.targetCount) {
+            if (this.relations.length >= this.targetCount && !this.isReducing) {
+                this.isReducing = true;
                 // Relations collected
                 this.engine.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
                 this.engine.stopWorkers();

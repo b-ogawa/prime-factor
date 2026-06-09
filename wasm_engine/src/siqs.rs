@@ -15,6 +15,7 @@ pub struct SiqsWorker {
     worker_id: usize,
     s_val: usize,
     kn: Int, // The target kN
+    sieve: Vec<u16>, // Reused sieve array to avoid reallocation
 }
 
 #[wasm_bindgen]
@@ -82,6 +83,7 @@ impl SiqsWorker {
             worker_id,
             s_val,
             kn,
+            sieve: vec![0u16; sieve_limit],
         }
     }
 }
@@ -232,20 +234,20 @@ impl SiqsWorker {
                 };
                 let c_is_neg = b2 < DoubleInt::from(self.kn);
 
-                let mut sieve = vec![0u16; self.sieve_limit];
+                self.sieve.fill(0);
                 for j in 0..fb_len {
                     if a_inv_p[j] == 0 { continue; }
                     let p = self.fb[j] as usize;
                     let log_p = self.fb_log[j] as u16;
                     let mut idx1 = x1_p[j] as usize;
                     while idx1 < self.sieve_limit {
-                        sieve[idx1] = sieve[idx1].saturating_add(log_p);
+                        self.sieve[idx1] = self.sieve[idx1].saturating_add(log_p);
                         idx1 += p;
                     }
                     if p > 2 {
                         let mut idx2 = x2_p[j] as usize;
                         while idx2 < self.sieve_limit {
-                            sieve[idx2] = sieve[idx2].saturating_add(log_p);
+                            self.sieve[idx2] = self.sieve[idx2].saturating_add(log_p);
                             idx2 += p;
                         }
                     }
@@ -260,7 +262,7 @@ impl SiqsWorker {
                 let threshold_u16 = core::cmp::min(65535, threshold) as u16;
 
                 for i in 0..self.sieve_limit {
-                    if sieve[i] >= threshold_u16 {
+                    if self.sieve[i] >= threshold_u16 {
                         let x = if i >= self.m {
                             Int::from(i - self.m)
                         } else {

@@ -30,6 +30,7 @@ self.onmessage = async (e) => {
                 // Use the bound exports from the module
                 ctx.sievedPrimes = wasm_bindgen.sieve_primes_wasm(sieveLimit);
                 postMessage({ type: "LOG", msg: "Core online & Primes sieved.", level: "sys", workerId: ctx.workerId });
+                postMessage({ type: "INIT_COMPLETE", workerId: ctx.workerId });
             } catch (err) {
                 console.error("WASM Init failed", err);
                 postMessage({ type: "LOG", msg: "WASM Initialization Failed: " + err, level: "error", workerId: ctx.workerId });
@@ -39,13 +40,24 @@ self.onmessage = async (e) => {
     }
     else if (data.cmd === "STOP") {
         ctx.shouldStop = true;
+        ctx.currentTaskId = null;
     }
     else if (data.cmd === "SIQS_FACTORIZE") {
         ctx.shouldStop = false;
-        await runParallelSIQS(data.target, data.kN, data.params, ctx);
+        ctx.currentTaskId = data.target;
+
+        // Primality check before attempting SIQS
+        let n_bytes = bigIntToBytesLE(data.target);
+        if (wasm_bindgen.is_prime_bpsw_bytes(n_bytes)) {
+            if (ctx.workerId === 0) postMessage({ type: "PRIME_FOUND", target: data.target, workerId: ctx.workerId });
+            return;
+        }
+
+        await runParallelSIQS(data.target, data.kN, data.params, ctx, data.target);
     }
     else if (data.cmd === "FACTORIZE") {
         ctx.shouldStop = false;
+        ctx.currentTaskId = data.target;
         let M = data.target;
         let params = data.params;
         try {
@@ -69,11 +81,10 @@ self.onmessage = async (e) => {
                         postMessage({ type: "FACTOR_FOUND", factor: p, target: M, workerId: ctx.workerId, method: "Trial Division" });
                         return;
                     }
-                    await ctx.yieldIfNeeded();
-                    if (ctx.shouldStop) return;
+                    if (await ctx.checkYieldAndStop(M)) return;
                 }
             }
-            await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
+            if (await ctx.checkYieldAndStop(M)) return;
             if (params.p1Limit > 0) {
                 ctx.sendPhase("Pollard P-1 (WASM)", "Limit=" + params.p1Limit, true);
                 let primesArr = new Uint32Array(ctx.sievedPrimes);
@@ -84,7 +95,7 @@ self.onmessage = async (e) => {
                     return;
                 }
             }
-            await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
+            if (await ctx.checkYieldAndStop(M)) return;
             if (params.rhoLimit > 0) {
                 ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
 
@@ -97,7 +108,7 @@ self.onmessage = async (e) => {
                     return;
                 }
             }
-            await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
+            if (await ctx.checkYieldAndStop(M)) return;
             ctx.sendPhase(PHASE_ECM_WASM, "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
 
             // --- WASM INTEGRATION: Stateful / Non-blocking ---
@@ -106,7 +117,7 @@ self.onmessage = async (e) => {
             let curves_run = 0;
 
             while (curves_run < params.maxCurves) {
-                if (ctx.shouldStop) {
+                if (ctx.shouldStop || ctx.currentTaskId !== M) {
                     ecmRunner.free();
                     return;
                 }
@@ -123,10 +134,13 @@ self.onmessage = async (e) => {
                 }
 
                 curves_run += curves_to_run;
-                await ctx.yieldIfNeeded();
+                if (await ctx.checkYieldAndStop(M)) {
+                    ecmRunner.free();
+                    return;
+                }
             }
             ecmRunner.free();
-            if (!ctx.shouldStop) {
+            if (!ctx.shouldStop && ctx.currentTaskId === M) {
                 postMessage({ type: "EXHAUSTED", target: M, workerId: ctx.workerId });
             }
         }

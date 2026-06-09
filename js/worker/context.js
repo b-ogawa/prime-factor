@@ -4,6 +4,7 @@ class WorkerContext {
         this.workerId = 0;
         this.sievedPrimes = [];
         this.shouldStop = false;
+        this.currentTaskId = null;
         this.lastYieldTime = Date.now();
         this.lastPhaseUpdate = 0;
         this.currentPhase = "";
@@ -24,6 +25,14 @@ class WorkerContext {
             this.lastYieldTime = now;
             await new Promise(r => setTimeout(r, 0));
         }
+    }
+
+    async checkYieldAndStop(expectedTaskId) {
+        await this.yieldIfNeeded();
+        if (this.shouldStop || this.currentTaskId !== expectedTaskId) {
+            return true; // Indicates we should stop
+        }
+        return false;
     }
 }
 
