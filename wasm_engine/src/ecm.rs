@@ -103,6 +103,8 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec
                 exp2 >>= 1;
             }
             a_q = res2;
+        } else if diff == 1 {
+            a_q = mont.mul(a_q, a);
         } else {
             a_q = mont.mul(a_q, a_d[diff as usize / 2]);
         }
@@ -154,10 +156,6 @@ pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> 
 
     while g == Int::from(1) {
         x = y;
-        for _ in 0..r {
-            let y_sq = mont.mul(y, y);
-            y = mont.add(y_sq, c);
-        }
         let mut k = 0;
         while k < r && g == Int::from(1) {
             ys = y;
@@ -231,6 +229,9 @@ fn xdbl_mont_inplace(r: &[Int; 2], a24: Int, mont: &MontgomerySpace, dest: &mut 
 }
 
 fn montgomery_ladder(k: usize, x: Int, z: Int, a24: Int, mont: &MontgomerySpace) -> [Int; 2] {
+    if k == 0 {
+        return [mont.transform(Int::from(1)), mont.transform(Int::from(0))];
+    }
     let mut r0 = [x, z];
     let mut r1 = [Int::from(0), Int::from(0)];
     xdbl_mont_inplace(&r0, a24, mont, &mut r1);
@@ -273,16 +274,27 @@ pub(crate) fn ext_gcd_inverse_internal(a: Int, m: Int) -> Option<Int> {
         let mut temp_t = t;
         let mut temp_r = r;
 
-        let q_newt = quotient.wrapping_mul(newt);
+        let q_newt_double = DoubleInt::from(quotient) * DoubleInt::from(newt);
+        let q_newt_mod = q_newt_double % DoubleInt::from(m);
+        let q_newt = Int::from_limbs(q_newt_mod.as_limbs()[..4].try_into().unwrap());
+        
         t = newt;
         if temp_t >= q_newt {
             newt = temp_t - q_newt;
         } else {
-            newt = m - ((q_newt - temp_t) % m);
+            newt = m - (q_newt - temp_t);
         }
 
         r = newr;
-        newr = temp_r - quotient * newr;
+        let q_newr_double = DoubleInt::from(quotient) * DoubleInt::from(newr);
+        let q_newr_mod = q_newr_double % DoubleInt::from(m);
+        let q_newr = Int::from_limbs(q_newr_mod.as_limbs()[..4].try_into().unwrap());
+        
+        if temp_r >= q_newr {
+            newr = temp_r - q_newr;
+        } else {
+            newr = m - (q_newr - temp_r);
+        }
     }
 
     if r > Int::from(1) {
@@ -297,7 +309,7 @@ fn get_suyama_curve(sigma: Int, n: Int) -> Option<(Int, Int)> {
     let s2_double = DoubleInt::from(s).wrapping_mul(DoubleInt::from(s)) % DoubleInt::from(n);
     let s2 = Int::from_limbs(s2_double.as_limbs()[..4].try_into().unwrap());
 
-    let s2_minus_5 = if s2 >= Int::from(5) { s2 - Int::from(5) } else { s2 + n - Int::from(5) };
+    let s2_minus_5 = if s2 >= Int::from(5) { s2 - Int::from(5) } else { (n - Int::from(5)) + s2 };
     let u = s2_minus_5 % n;
     let v = Int::from_limbs((DoubleInt::from(4) * DoubleInt::from(s) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
@@ -310,25 +322,25 @@ fn get_suyama_curve(sigma: Int, n: Int) -> Option<(Int, Int)> {
     let x0 = u3;
     let z0 = v3;
 
-    let v_u = if v >= u { v - u } else { v + n - u };
+    let v_u = if v >= u { v - u } else { (n - u) + v };
     let v_u2 = Int::from_limbs((DoubleInt::from(v_u) * DoubleInt::from(v_u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
     let v_u3 = Int::from_limbs((DoubleInt::from(v_u2) * DoubleInt::from(v_u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
     let three_u = Int::from_limbs((DoubleInt::from(3) * DoubleInt::from(u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let three_u_v = (three_u + v) % n;
+    let three_u_v = Int::from_limbs(((DoubleInt::from(three_u) + DoubleInt::from(v)) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
     let term1 = Int::from_limbs((DoubleInt::from(v_u3) * DoubleInt::from(three_u_v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
     let eight_u3 = Int::from_limbs((DoubleInt::from(8) * DoubleInt::from(u3) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
     let term2 = Int::from_limbs((DoubleInt::from(eight_u3) * DoubleInt::from(v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
-    let a_num = if term1 >= term2 { term1 - term2 } else { term1 + n - term2 };
+    let a_num = if term1 >= term2 { term1 - term2 } else { (n - term2) + term1 };
 
     let four_u3 = Int::from_limbs((DoubleInt::from(4) * DoubleInt::from(u3) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
     let a_den = Int::from_limbs((DoubleInt::from(four_u3) * DoubleInt::from(v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
     let two_a_den = Int::from_limbs((DoubleInt::from(2) * DoubleInt::from(a_den) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let a24_num = (a_num + two_a_den) % n;
+    let a24_num = Int::from_limbs(((DoubleInt::from(a_num) + DoubleInt::from(two_a_den)) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
     let a24_den = Int::from_limbs((DoubleInt::from(4) * DoubleInt::from(a_den) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
@@ -506,3 +518,4 @@ fn get_secure_sigma(prng: &mut Xoroshiro128PlusPlus) -> u64 {
     let s = prng.next() as u32 as u64;
     if s > 5 { s } else { s + 6 }
 }
+
