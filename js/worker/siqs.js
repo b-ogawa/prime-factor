@@ -13,7 +13,7 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
     let nBytes = bigIntToBytesLE(kN_Big);
     let fbPrimes = new Uint32Array(FB.map(f => f.p));
     let fbLogs = new Uint8Array(FB.map(f => f.log));
-
+    
     // We need fb_r as bytes as well
     let fbRBytes = new Uint8Array(FB.length * 32);
     for(let i=0; i<FB.length; i++) {
@@ -45,6 +45,6 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
         ctx.sendPhase("SIQS Sieving", "Polys: " + polys_searched);
         await ctx.yieldIfNeeded();
     }
-
+    
     worker.free();
 }
