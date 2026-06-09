@@ -21,6 +21,25 @@ let wasm_bindgen = (function(exports) {
         return v2;
     }
     exports.pollard_brent_bytes = pollard_brent_bytes;
+
+    /**
+     * @param {Uint8Array} n_bytes
+     * @param {number} b1
+     * @param {number} max_curves
+     * @returns {Uint8Array | undefined}
+     */
+    function run_ecm_bytes(n_bytes, b1, max_curves) {
+        const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.run_ecm_bytes(ptr0, len0, b1, max_curves);
+        let v2;
+        if (ret[0] !== 0) {
+            v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v2;
+    }
+    exports.run_ecm_bytes = run_ecm_bytes;
     function __wbg_get_imports() {
         const import0 = {
             __proto__: null,

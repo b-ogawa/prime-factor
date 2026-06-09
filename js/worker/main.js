@@ -71,11 +71,17 @@ self.onmessage = async (e) => {
                 }
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
-            let ecmRes = await runECM(M, params.b1, params.maxCurves, mont, ctx);
-            if (ecmRes && ecmRes.success) {
-                postMessage({ type: "FACTOR_FOUND", factor: ecmRes.factor, target: M, workerId: ctx.workerId, method: "ECM" });
+
+            ctx.sendPhase("ECM Phase (WASM)", "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
+            let n_bytes_ecm = bigIntToBytesLE(M);
+            let ecmFactorBytes = wasm_bindgen.run_ecm_bytes(n_bytes_ecm, params.b1, params.maxCurves);
+
+            if (ecmFactorBytes) {
+                let ecmFactorBigInt = bytesToBigIntLE(ecmFactorBytes);
+                postMessage({ type: "FACTOR_FOUND", factor: ecmFactorBigInt.toString(), target: M, workerId: ctx.workerId, method: "ECM (WASM)" });
                 return;
             }
+
             if (!ctx.shouldStop) {
                 postMessage({ type: "EXHAUSTED", target: M, workerId: ctx.workerId });
             }

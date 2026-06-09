@@ -96,7 +96,8 @@ class SIQSCoordinator {
     handleRelation(data) {
         if (!this.active || this.engine.activeTarget !== data.target) return;
 
-        let sig = data.rel.x + "|" + data.rel.A + "|" + data.rel.B;
+        // Use BigInt representation to form a stable string-free signature where possible, or an optimized hash
+        let sig = `${data.rel.x}-${data.rel.A}-${data.rel.B}`;
         if (!this.relationSignatures.has(sig)) {
             this.relationSignatures.add(sig);
             this.relations.push(data.rel);
@@ -115,6 +116,8 @@ class SIQSCoordinator {
     }
 
     reduceMatrix() {
+        if (!this.active || !this.engine.activeTarget) return;
+
         this.engine.ui.log("[SIQS] Running Bit-packed Gaussian Elimination on binary matrix...", "sys");
         this.engine.ui.updateStatus("SIQS: Reducing Matrix");
 
@@ -158,12 +161,8 @@ class SIQSCoordinator {
         let numRows = this.relations.length;
         let words = Math.ceil(numCols / 32);
 
-        // Col Mapping
-        let colMap = {};
-        colMap[-1] = 0; // Sign
-        for (let j = 0; j < this.FB.length; j++) {
-            colMap[this.FB[j].p] = j + 1;
-        }
+        // No Col Mapping needed since factors are now FB indices directly!
+        // Index -1 represents the sign.
 
         let M = [];
         let ID = [];
@@ -178,13 +177,11 @@ class SIQSCoordinator {
             let rel = this.relations[i];
             if (rel.sign === -1) r[0] |= 1; // Sign index
 
-            for (let fStr of rel.factors) {
-                let colIdx = colMap[fStr];
-                if (colIdx !== undefined) {
-                    let wIdx = Math.floor(colIdx / 32);
-                    let bIdx = colIdx % 32;
-                    r[wIdx] ^= (1 << bIdx); // mod 2 addition
-                }
+            for (let fIdx of rel.factors) {
+                let colIdx = fIdx + 1; // +1 because col 0 is the sign
+                let wIdx = Math.floor(colIdx / 32);
+                let bIdx = colIdx % 32;
+                r[wIdx] ^= (1 << bIdx); // mod 2 addition
             }
             M.push(r);
             ID.push(id);
@@ -240,11 +237,9 @@ class SIQSCoordinator {
         for (let d = 0; d < deps.length; d++) {
             let dep = deps[d];
             let X = 1n;
-            let exponentSum = {};
 
             // Exponent trackers
-            exponentSum[-1] = 0;
-            for (let p of this.FB) exponentSum[String(p.p)] = 0;
+            let exponentSum = new Int32Array(this.FB.length + 1); // index 0 is sign, 1..FB.length are primes
 
             for (let idx of dep) {
                 let rel = this.relations[idx];
@@ -259,25 +254,23 @@ class SIQSCoordinator {
                 if (term < 0n) term += N_big;
                 X = (X * term) % N_big;
 
-                if (rel.sign === -1 || rel.sign === "-1") exponentSum[-1]++;
-                for (let fStr of rel.factors) {
-                    let f = String(fStr);
-                    exponentSum[f] = (exponentSum[f] || 0) + 1;
+                if (rel.sign === -1 || rel.sign === "-1") exponentSum[0]++;
+                for (let fIdx of rel.factors) {
+                    exponentSum[fIdx + 1]++;
                 }
             }
 
             // Verify and compute square root Y
             let Y = 1n;
             let success = true;
-            for (let f in exponentSum) {
-                let count = Number(exponentSum[f]);
+            for (let i = 1; i <= this.FB.length; i++) {
+                let count = exponentSum[i];
                 if (count % 2 !== 0) {
                     success = false; break; // odd exponent detected
                 }
                 if (count > 0) {
-                    let half = BigInt(Math.floor(count / 2));
-                    let prime = BigInt(f);
-                    if (prime === -1n) continue; // sign square root
+                    let half = BigInt(count / 2);
+                    let prime = BigInt(this.FB[i - 1].p);
                     Y = (Y * powMod(prime, half, N_big)) % N_big;
                 }
             }

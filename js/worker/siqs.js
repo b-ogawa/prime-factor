@@ -147,17 +147,17 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
                 for (let j = 0; j < FB.length; j++) {
                     let p = BigInt(FB[j].p);
                     while (temp % p === 0n) {
-                        factors.push(p.toString());
+                        factors.push(j);
                         temp /= p;
                     }
                 }
                 if (temp === 1n) {
-                    for (let k = 0; k < s; k++) factors.push(FB[q_indices[k]].p.toString());
+                    for (let k = 0; k < s; k++) factors.push(q_indices[k]);
 
                     let valid = true;
-                    let maxPrime = BigInt(FB[FB.length - 1].p);
-                    for (let f of factors) {
-                        if (BigInt(f) > maxPrime) { valid = false; break; }
+                    // factors are now indices, max valid index is FB.length - 1
+                    for (let fIdx of factors) {
+                        if (fIdx >= FB.length) { valid = false; break; }
                     }
                     if (valid) {
                         postMessage({
