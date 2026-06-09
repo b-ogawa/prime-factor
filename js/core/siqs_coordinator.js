@@ -108,9 +108,10 @@ class SIQSCoordinator {
 
             // Add relation to WASM reducer
             let nBig = BigInt(this.engine.activeTarget);
+            let kNBig = nBig * this.k;
             let xBig = BigInt(data.rel.x);
-            // Normalize x mod n to avoid negative number serialization issues
-            xBig = (xBig % nBig + nBig) % nBig;
+            // Normalize x mod kN to avoid negative number serialization issues
+            xBig = (xBig % kNBig + kNBig) % kNBig;
 
             let xBytes = bigIntToBytesLE(xBig);
             let bBytes = bigIntToBytesLE(BigInt(data.rel.B));
