@@ -58,6 +58,10 @@ self.onmessage = async (e) => {
                 let currentVal = M;
                 for (let p of ctx.sievedPrimes) {
                     let pBig = BigInt(p);
+                    if (pBig * pBig > currentVal) {
+                        postMessage({ type: "PRIME_FOUND", target: M, workerId: ctx.workerId });
+                        return;
+                    }
                     if (pBig > BigInt(params.trialLimit)) break;
                     if (currentVal % pBig === 0n) {
                         postMessage({ type: "FACTOR_FOUND", factor: p, target: M, workerId: ctx.workerId, method: "Trial Division" });

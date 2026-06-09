@@ -187,9 +187,16 @@ fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
     false
 }
 
+fn int_from_le_slice(bytes: &[u8]) -> Int {
+    let mut padded = [0u8; 32];
+    let len = core::cmp::min(bytes.len(), 32);
+    padded[..len].copy_from_slice(&bytes[..len]);
+    Int::try_from_le_slice(&padded).unwrap_or(Int::from(0))
+}
+
 #[wasm_bindgen]
 pub fn is_prime_bpsw_bytes(n_bytes: &[u8]) -> bool {
-    let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));
+    let n = int_from_le_slice(n_bytes);
     if n < Int::from(2) { return false; }
     if n == Int::from(2) || n == Int::from(3) || n == Int::from(5) || n == Int::from(7) { return true; }
     if n.as_limbs()[0] % 2 == 0 || n.as_limbs()[0] % 3 == 0 || n.as_limbs()[0] % 5 == 0 { return false; }
@@ -236,7 +243,7 @@ pub fn sieve_primes_wasm(max: usize) -> Vec<u32> {
 
 #[wasm_bindgen]
 pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec<u8>> {
-    let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));
+    let n = int_from_le_slice(n_bytes);
     if n == Int::from(0) || n == Int::from(1) { return None; }
     let mont = MontgomerySpace::new(n);
     let mut prng = Xoroshiro128PlusPlus::new();
@@ -366,7 +373,7 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec
 
 #[wasm_bindgen]
 pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> {
-    let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));
+    let n = int_from_le_slice(n_bytes);
     if n == Int::from(0) { return None; }
 
     let mont = MontgomerySpace::new(n);
@@ -587,7 +594,7 @@ pub struct EcmRunner {
 impl EcmRunner {
     #[wasm_bindgen(constructor)]
     pub fn new(n_bytes: &[u8], b1: usize) -> Self {
-        let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));
+        let n = int_from_le_slice(n_bytes);
         let mont = MontgomerySpace::new(n);
         let prng = Xoroshiro128PlusPlus::new();
 
@@ -735,7 +742,7 @@ pub struct SiqsReducer {
 impl SiqsReducer {
     #[wasm_bindgen(constructor)]
     pub fn new(n_bytes: &[u8], fb_primes: &[u32]) -> Self {
-        let n = Int::try_from_le_slice(n_bytes).unwrap_or(Int::from(0));
+        let n = int_from_le_slice(n_bytes);
         SiqsReducer {
             n,
             fb: fb_primes.to_vec(),
@@ -834,13 +841,13 @@ impl SiqsReducer {
 
             for &idx in dep {
                 let rel = &self.relations[idx];
-                let rel_x = Int::try_from_le_slice(&rel.x).unwrap_or(Int::from(0));
-                let rel_b = Int::try_from_le_slice(&rel.b).unwrap_or(Int::from(0));
+                let rel_x = int_from_le_slice(&rel.x);
+                let rel_b = int_from_le_slice(&rel.b);
 
                 let rel_a = if rel.a.is_empty() {
                     Int::from(1)
                 } else {
-                    Int::try_from_le_slice(&rel.a).unwrap_or(Int::from(1))
+                    int_from_le_slice(&rel.a)
                 };
 
                 let term_prod = DoubleInt::from(rel_a).wrapping_mul(DoubleInt::from(rel_x));
