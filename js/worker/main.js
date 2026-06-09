@@ -10,7 +10,6 @@ if (typeof wasm_bindgen === 'function') {
         postMessage({ type: "WASM_READY", workerId: ctx.workerId });
     }).catch(console.error);
 } else {
-    // If we're here, it might be that the module format is different.
     console.error("wasm_bindgen is not a function in the worker!");
 }
 
@@ -24,14 +23,17 @@ self.onmessage = async (e) => {
         // The worker is likely receiving INIT before WASM is fully loaded.
         // We will wait if it's not ready yet.
         const initSieve = async () => {
-            if (wasmReadyPromise) await wasmReadyPromise;
-            // Now use the bound exports from the module
-            ctx.sievedPrimes = wasm_bindgen.sieve_primes_wasm(sieveLimit);
-            postMessage({ type: "LOG", msg: "Core online & Primes sieved.", level: "sys", workerId: ctx.workerId });
+            try {
+                if (wasmReadyPromise) await wasmReadyPromise;
+                // Use the bound exports from the module
+                ctx.sievedPrimes = wasm_bindgen.sieve_primes_wasm(sieveLimit);
+                postMessage({ type: "LOG", msg: "Core online & Primes sieved.", level: "sys", workerId: ctx.workerId });
+            } catch (err) {
+                console.error("WASM Init failed", err);
+                postMessage({ type: "LOG", msg: "WASM Initialization Failed: " + err, level: "error", workerId: ctx.workerId });
+            }
         };
         initSieve();
-
-        postMessage({ type: "LOG", msg: "Core online & Primes sieved.", level: "sys", workerId: ctx.workerId });
     }
     else if (data.cmd === "STOP") {
         ctx.shouldStop = true;
