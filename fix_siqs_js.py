@@ -1,4 +1,9 @@
-async function runParallelSIQS(target_N, kN, params, ctx) {
+with open('js/worker/siqs.js', 'r') as f:
+    content = f.read()
+
+# We completely rewrite runParallelSIQS to use wasm
+
+new_content = """async function runParallelSIQS(target_N, kN, params, ctx) {
     let fbSize = params.fbSize;
     let M = params.M;
     let maxWorkers = params.maxWorkers || 8;
@@ -48,3 +53,7 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
 
     worker.free();
 }
+"""
+
+with open('js/worker/siqs.js', 'w') as f:
+    f.write(new_content)

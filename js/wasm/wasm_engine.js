@@ -103,6 +103,51 @@ let wasm_bindgen = (function(exports) {
     if (Symbol.dispose) SiqsReducer.prototype[Symbol.dispose] = SiqsReducer.prototype.free;
     exports.SiqsReducer = SiqsReducer;
 
+    class SiqsWorker {
+        __destroy_into_raw() {
+            const ptr = this.__wbg_ptr;
+            this.__wbg_ptr = 0;
+            SiqsWorkerFinalization.unregister(this);
+            return ptr;
+        }
+        free() {
+            const ptr = this.__destroy_into_raw();
+            wasm.__wbg_siqsworker_free(ptr, 0);
+        }
+        /**
+         * @param {Uint8Array} kn_bytes
+         * @param {Uint32Array} fb_primes
+         * @param {Uint8Array} fb_logs
+         * @param {Uint8Array} fb_r_bytes
+         * @param {number} sieve_limit
+         * @param {number} worker_id
+         */
+        constructor(kn_bytes, fb_primes, fb_logs, fb_r_bytes, sieve_limit, worker_id) {
+            const ptr0 = passArray8ToWasm0(kn_bytes, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passArray32ToWasm0(fb_primes, wasm.__wbindgen_malloc);
+            const len1 = WASM_VECTOR_LEN;
+            const ptr2 = passArray8ToWasm0(fb_logs, wasm.__wbindgen_malloc);
+            const len2 = WASM_VECTOR_LEN;
+            const ptr3 = passArray8ToWasm0(fb_r_bytes, wasm.__wbindgen_malloc);
+            const len3 = WASM_VECTOR_LEN;
+            const ret = wasm.siqsworker_new(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, sieve_limit, worker_id);
+            this.__wbg_ptr = ret;
+            SiqsWorkerFinalization.register(this, this.__wbg_ptr, this);
+            return this;
+        }
+        /**
+         * @param {number} batch_size
+         * @returns {any}
+         */
+        step(batch_size) {
+            const ret = wasm.siqsworker_step(this.__wbg_ptr, batch_size);
+            return ret;
+        }
+    }
+    if (Symbol.dispose) SiqsWorker.prototype[Symbol.dispose] = SiqsWorker.prototype.free;
+    exports.SiqsWorker = SiqsWorker;
+
     /**
      * @param {Uint8Array} n_bytes
      * @returns {boolean}
@@ -168,6 +213,13 @@ let wasm_bindgen = (function(exports) {
     function __wbg_get_imports() {
         const import0 = {
             __proto__: null,
+            __wbg___wbindgen_debug_string_0accd80f45e5faa2: function(arg0, arg1) {
+                const ret = debugString(arg1);
+                const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+                const len1 = WASM_VECTOR_LEN;
+                getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
+                getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+            },
             __wbg___wbindgen_is_function_754e9f305ff6029e: function(arg0) {
                 const ret = typeof(arg0) === 'function';
                 return ret;
@@ -207,6 +259,14 @@ let wasm_bindgen = (function(exports) {
                 const ret = arg0.msCrypto;
                 return ret;
             },
+            __wbg_new_ce1ab61c1c2b300d: function() {
+                const ret = new Object();
+                return ret;
+            },
+            __wbg_new_d90091b82fdf5b91: function() {
+                const ret = new Array();
+                return ret;
+            },
             __wbg_new_with_length_36a4998e27b014c5: function(arg0) {
                 const ret = new Uint8Array(arg0 >>> 0);
                 return ret;
@@ -222,11 +282,19 @@ let wasm_bindgen = (function(exports) {
             __wbg_prototypesetcall_3249fc62a0fafa30: function(arg0, arg1, arg2) {
                 Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
             },
+            __wbg_push_a6822215aa43e71c: function(arg0, arg1) {
+                const ret = arg0.push(arg1);
+                return ret;
+            },
             __wbg_randomFillSync_6c25eac9869eb53c: function() { return handleError(function (arg0, arg1) {
                 arg0.randomFillSync(arg1);
             }, arguments); },
             __wbg_require_b4edbdcf3e2a1ef0: function() { return handleError(function () {
                 const ret = module.require;
+                return ret;
+            }, arguments); },
+            __wbg_set_6e30c9374c26414c: function() { return handleError(function (arg0, arg1, arg2) {
+                const ret = Reflect.set(arg0, arg1, arg2);
                 return ret;
             }, arguments); },
             __wbg_static_accessor_GLOBAL_9d53f2689e622ca1: function() {
@@ -253,12 +321,17 @@ let wasm_bindgen = (function(exports) {
                 const ret = arg0.versions;
                 return ret;
             },
-            __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+            __wbindgen_cast_0000000000000001: function(arg0) {
+                // Cast intrinsic for `F64 -> Externref`.
+                const ret = arg0;
+                return ret;
+            },
+            __wbindgen_cast_0000000000000002: function(arg0, arg1) {
                 // Cast intrinsic for `Ref(Slice(U8)) -> NamedExternref("Uint8Array")`.
                 const ret = getArrayU8FromWasm0(arg0, arg1);
                 return ret;
             },
-            __wbindgen_cast_0000000000000002: function(arg0, arg1) {
+            __wbindgen_cast_0000000000000003: function(arg0, arg1) {
                 // Cast intrinsic for `Ref(String) -> Externref`.
                 const ret = getStringFromWasm0(arg0, arg1);
                 return ret;
@@ -285,11 +358,79 @@ let wasm_bindgen = (function(exports) {
     const SiqsReducerFinalization = (typeof FinalizationRegistry === 'undefined')
         ? { register: () => {}, unregister: () => {} }
         : new FinalizationRegistry(ptr => wasm.__wbg_siqsreducer_free(ptr, 1));
+    const SiqsWorkerFinalization = (typeof FinalizationRegistry === 'undefined')
+        ? { register: () => {}, unregister: () => {} }
+        : new FinalizationRegistry(ptr => wasm.__wbg_siqsworker_free(ptr, 1));
 
     function addToExternrefTable0(obj) {
         const idx = wasm.__externref_table_alloc();
         wasm.__wbindgen_externrefs.set(idx, obj);
         return idx;
+    }
+
+    function debugString(val) {
+        // primitive types
+        const type = typeof val;
+        if (type == 'number' || type == 'boolean' || val == null) {
+            return  `${val}`;
+        }
+        if (type == 'string') {
+            return `"${val}"`;
+        }
+        if (type == 'symbol') {
+            const description = val.description;
+            if (description == null) {
+                return 'Symbol';
+            } else {
+                return `Symbol(${description})`;
+            }
+        }
+        if (type == 'function') {
+            const name = val.name;
+            if (typeof name == 'string' && name.length > 0) {
+                return `Function(${name})`;
+            } else {
+                return 'Function';
+            }
+        }
+        // objects
+        if (Array.isArray(val)) {
+            const length = val.length;
+            let debug = '[';
+            if (length > 0) {
+                debug += debugString(val[0]);
+            }
+            for(let i = 1; i < length; i++) {
+                debug += ', ' + debugString(val[i]);
+            }
+            debug += ']';
+            return debug;
+        }
+        // Test for built-in
+        const builtInMatches = /\[object ([^\]]+)\]/.exec(toString.call(val));
+        let className;
+        if (builtInMatches && builtInMatches.length > 1) {
+            className = builtInMatches[1];
+        } else {
+            // Failed to match the standard '[object ClassName]'
+            return toString.call(val);
+        }
+        if (className == 'Object') {
+            // we're a user defined class or Object
+            // JSON.stringify avoids problems with cycles, and is generally much
+            // easier than looping through ownProperties of `val`.
+            try {
+                return 'Object(' + JSON.stringify(val) + ')';
+            } catch (_) {
+                return 'Object';
+            }
+        }
+        // errors
+        if (val instanceof Error) {
+            return `${val.name}: ${val.message}\n${val.stack}`;
+        }
+        // TODO we could test for more things here, like `Set`s and `Map`s.
+        return className;
     }
 
     function getArrayU32FromWasm0(ptr, len) {
@@ -300,6 +441,14 @@ let wasm_bindgen = (function(exports) {
     function getArrayU8FromWasm0(ptr, len) {
         ptr = ptr >>> 0;
         return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+    }
+
+    let cachedDataViewMemory0 = null;
+    function getDataViewMemory0() {
+        if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+            cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+        }
+        return cachedDataViewMemory0;
     }
 
     function getStringFromWasm0(ptr, len) {
@@ -349,10 +498,60 @@ let wasm_bindgen = (function(exports) {
         return ptr;
     }
 
+    function passStringToWasm0(arg, malloc, realloc) {
+        if (realloc === undefined) {
+            const buf = cachedTextEncoder.encode(arg);
+            const ptr = malloc(buf.length, 1) >>> 0;
+            getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+            WASM_VECTOR_LEN = buf.length;
+            return ptr;
+        }
+
+        let len = arg.length;
+        let ptr = malloc(len, 1) >>> 0;
+
+        const mem = getUint8ArrayMemory0();
+
+        let offset = 0;
+
+        for (; offset < len; offset++) {
+            const code = arg.charCodeAt(offset);
+            if (code > 0x7F) break;
+            mem[ptr + offset] = code;
+        }
+        if (offset !== len) {
+            if (offset !== 0) {
+                arg = arg.slice(offset);
+            }
+            ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+            const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+            const ret = cachedTextEncoder.encodeInto(arg, view);
+
+            offset += ret.written;
+            ptr = realloc(ptr, len, offset, 1) >>> 0;
+        }
+
+        WASM_VECTOR_LEN = offset;
+        return ptr;
+    }
+
     let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
     cachedTextDecoder.decode();
     function decodeText(ptr, len) {
         return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+    }
+
+    const cachedTextEncoder = new TextEncoder();
+
+    if (!('encodeInto' in cachedTextEncoder)) {
+        cachedTextEncoder.encodeInto = function (arg, view) {
+            const buf = cachedTextEncoder.encode(arg);
+            view.set(buf);
+            return {
+                read: arg.length,
+                written: buf.length
+            };
+        };
     }
 
     let WASM_VECTOR_LEN = 0;
@@ -362,6 +561,7 @@ let wasm_bindgen = (function(exports) {
         wasmInstance = instance;
         wasm = instance.exports;
         wasmModule = module;
+        cachedDataViewMemory0 = null;
         cachedUint32ArrayMemory0 = null;
         cachedUint8ArrayMemory0 = null;
         wasm.__wbindgen_start();
