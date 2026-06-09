@@ -62,8 +62,9 @@ impl MontgomerySpace {
 
         // Compute R^2 mod N
         // R = 2^256. R^2 = 2^512.
-        let mut r2: DoubleInt = DoubleInt::from(1) << 512;
-        r2 = r2 % DoubleInt::from(n);
+        let r: DoubleInt = DoubleInt::from(1) << 256;
+        let r_mod: DoubleInt = r % DoubleInt::from(n);
+        let r2: DoubleInt = r_mod.wrapping_mul(r_mod) % DoubleInt::from(n);
         let r2_limbs: [u64; 4] = r2.as_limbs()[..4].try_into().unwrap();
         let r2 = Int::from_limbs(r2_limbs);
 
@@ -80,12 +81,31 @@ impl MontgomerySpace {
         let t_low = Int::from_limbs(t_limbs);
         let m = t_low.wrapping_mul(self.n_inv);
         let mn = DoubleInt::from(m).wrapping_mul(DoubleInt::from(self.n));
-        let res: DoubleInt = t.wrapping_add(mn) >> 256;
+        
+        let (sum, carry) = t.overflowing_add(mn);
+        let res: DoubleInt = sum >> 256;
         let res_limbs: [u64; 4] = res.as_limbs()[..4].try_into().unwrap();
         let mut res_int = Int::from_limbs(res_limbs);
 
-        if res_int >= self.n || (t.wrapping_add(mn) < t) { // Handle carry out if any
-            res_int = res_int.wrapping_sub(self.n);
+        if carry {
+            // Carry out represents exactly 2^512. After shifting right by 256, it's 2^256.
+            // But we operate within modulo self.n, and 2^256 = R.
+            // Actually, in the standard Montgomery reduction:
+            // (T + m*N) / R. If there's a carry out, we just add 1 to the MSB, which is equivalent to adding 1.
+            // Wait, (T + m*N) is exactly divisible by R. The 256 lower bits are 0.
+            // The value is exactly sum >> 256 + carry * (2^512 >> 256), which is + carry * 2^256.
+            // Mod N, we can just subtract N. 
+            // In typical U256 math, the top bit carry means the value is at least 2^256 > N.
+            // So we can compute res_int = res_int.wrapping_sub(self.n) + carry bit handling.
+            
+            // To be entirely safe and precise without manual carry arithmetic:
+            let (mut new_res, _sub_carry) = res_int.overflowing_sub(self.n);
+            // Since we had a 2^256 carry out, after subtracting N, the result must be correct.
+            // In U256 math, sub_carry occurs if res_int < self.n, but we know the true value is res_int + 2^256.
+            // So res_int + 2^256 - self.n is exactly res_int.wrapping_sub(self.n).
+            res_int = new_res;
+        } else if res_int >= self.n {
+            res_int = res_int - self.n;
         }
         res_int
     }
@@ -160,7 +180,7 @@ fn strong_lucas_test(n: Int) -> bool {
         s += 1;
         d >>= 1;
     }
-
+    
     // Find D
     let mut d_val = Int::from(5);
     let mut sign = 1i32;
@@ -180,7 +200,7 @@ fn strong_lucas_test(n: Int) -> bool {
         d_val = d_val + Int::from(2);
         sign = -sign;
     }
-
+    
     let p_val = Int::from(1);
     // Q = (1 - D) / 4 mod n. Since D = d_val * sign, 1 - D = 1 - d_val * sign
     let q_val = if sign == 1 {
@@ -207,37 +227,38 @@ fn strong_lucas_test(n: Int) -> bool {
     let mut u = Int::from(1);
     let mut v = p_val;
     let mut qk = q_val;
-
+    
     let d_bits = 256 - d.leading_zeros(); // bit length
 
     for i in (0..d_bits - 1).rev() {
         // U_2k = (U * V) % n
         let u_double = DoubleInt::from(u).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
         let mut u_2k = Int::from_limbs(u_double.as_limbs()[..4].try_into().unwrap());
-
+        
         // V_2k = (V * V - 2 * Qk) % n
         let v2 = DoubleInt::from(v).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
         let qk2 = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(2)) % DoubleInt::from(n);
         let v_2k_mod = if v2 >= qk2 { v2 - qk2 } else { v2 + DoubleInt::from(n) - qk2 };
         let mut v_2k = Int::from_limbs(v_2k_mod.as_limbs()[..4].try_into().unwrap());
-
+        
         let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
         qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
-
+        
         u = u_2k;
         v = v_2k;
-
+        
         if ((d >> i) & Int::from(1)) == Int::from(1) {
             // U_next = (P * U + V) / 2 % n
             let mut u_next = DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
+            u_next = (u_next + DoubleInt::from(v)) % DoubleInt::from(n);
             let mut u_next_int = Int::from_limbs(u_next.as_limbs()[..4].try_into().unwrap());
-            u_next_int = (u_next_int + v) % n;
             if u_next_int.as_limbs()[0] & 1 == 1 {
-                u_next_int = (u_next_int + n) >> 1;
+                u_next = (DoubleInt::from(u_next_int) + DoubleInt::from(n)) >> 1;
+                u_next_int = Int::from_limbs(u_next.as_limbs()[..4].try_into().unwrap());
             } else {
                 u_next_int >>= 1;
             }
-
+            
             // V_next = (D * U + P * V) / 2 % n
             let mut v_next_part1 = DoubleInt::from(d_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
             if sign == -1 {
@@ -247,32 +268,33 @@ fn strong_lucas_test(n: Int) -> bool {
             let mut v_next = (v_next_part1 + v_next_part2) % DoubleInt::from(n);
             let mut v_next_int = Int::from_limbs(v_next.as_limbs()[..4].try_into().unwrap());
             if v_next_int.as_limbs()[0] & 1 == 1 {
-                v_next_int = (v_next_int + n) >> 1;
+                v_next = (DoubleInt::from(v_next_int) + DoubleInt::from(n)) >> 1;
+                v_next_int = Int::from_limbs(v_next.as_limbs()[..4].try_into().unwrap());
             } else {
                 v_next_int >>= 1;
             }
-
+            
             u = u_next_int;
             v = v_next_int;
-
+            
             let qk_q = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(q_val)) % DoubleInt::from(n);
             qk = Int::from_limbs(qk_q.as_limbs()[..4].try_into().unwrap());
         }
     }
-
+    
     if u == Int::from(0) || v == Int::from(0) {
         return true;
     }
-
+    
     for _ in 1..s {
         let v2 = DoubleInt::from(v).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
         let qk2 = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(2)) % DoubleInt::from(n);
         let v_next_mod = if v2 >= qk2 { v2 - qk2 } else { v2 + DoubleInt::from(n) - qk2 };
         v = Int::from_limbs(v_next_mod.as_limbs()[..4].try_into().unwrap());
-
+        
         let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
         qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
-
+        
         if v == Int::from(0) {
             return true;
         }
@@ -420,7 +442,7 @@ impl SiqsReducer {
         let mut id = vec![vec![0u32; id_words]; num_rows];
 
         for i in 0..num_rows {
-            id[i][i / 32] |= 1 << (i % 32);
+            id[i][i / 32] |= 1u32 << (i % 32);
 
             let rel = &self.relations[i];
             if rel.sign == -1 {
@@ -431,7 +453,7 @@ impl SiqsReducer {
                 let col_idx = (f_idx + 1) as usize;
                 let w_idx = col_idx / 32;
                 let b_idx = col_idx % 32;
-                m[i][w_idx] ^= 1 << b_idx;
+                m[i][w_idx] ^= 1u32 << b_idx;
             }
         }
 
@@ -442,7 +464,7 @@ impl SiqsReducer {
 
             let mut r = None;
             for i in num_pivots..num_rows {
-                if (m[i][w_idx] & (1 << b_idx)) != 0 {
+                if (m[i][w_idx] & (1u32 << b_idx)) != 0 {
                     r = Some(i);
                     break;
                 }
@@ -454,7 +476,7 @@ impl SiqsReducer {
 
                 for i in 0..num_rows {
                     if i != num_pivots {
-                        if (m[i][w_idx] & (1 << b_idx)) != 0 {
+                        if (m[i][w_idx] & (1u32 << b_idx)) != 0 {
                             for w in 0..words {
                                 m[i][w] ^= m[num_pivots][w];
                             }
@@ -472,7 +494,7 @@ impl SiqsReducer {
         for i in num_pivots..num_rows {
             let mut dep = Vec::new();
             for j in 0..num_rows {
-                if (id[i][j / 32] & (1 << (j % 32))) != 0 {
+                if (id[i][j / 32] & (1u32 << (j % 32))) != 0 {
                     dep.push(j);
                 }
             }
@@ -502,8 +524,8 @@ impl SiqsReducer {
 
                 let term_prod = DoubleInt::from(rel_a).wrapping_mul(DoubleInt::from(rel_x));
                 let term_mod = term_prod % DoubleInt::from(self.n);
-                let mut term = Int::from_limbs(term_mod.as_limbs()[..4].try_into().unwrap());
-                term = (term + rel_b) % self.n;
+                let term_add = (term_mod + DoubleInt::from(rel_b)) % DoubleInt::from(self.n);
+                let term = Int::from_limbs(term_add.as_limbs()[..4].try_into().unwrap());
 
                 let x_prod = DoubleInt::from(x_val).wrapping_mul(DoubleInt::from(term));
                 let x_mod = x_prod % DoubleInt::from(self.n);
@@ -550,13 +572,14 @@ impl SiqsReducer {
                 continue;
             }
 
-            let mut diff = if x_val >= y_val { x_val - y_val } else { x_val + self.n - y_val };
+            let diff = if x_val >= y_val { x_val - y_val } else { x_val + self.n - y_val };
             let mut g = gcd(diff, self.n);
             if g > Int::from(1) && g < self.n {
                 return Some(g.to_le_bytes::<32>().to_vec());
             }
 
-            let sum = (x_val + y_val) % self.n;
+            let sum_double = (DoubleInt::from(x_val) + DoubleInt::from(y_val)) % DoubleInt::from(self.n);
+            let sum = Int::from_limbs(sum_double.as_limbs()[..4].try_into().unwrap());
             g = gcd(sum, self.n);
             if g > Int::from(1) && g < self.n {
                 return Some(g.to_le_bytes::<32>().to_vec());
