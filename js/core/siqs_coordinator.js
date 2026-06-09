@@ -206,27 +206,15 @@ class SIQSCoordinator {
                 let f2 = this.engine.activeTarget / f1;
                 this.engine.emit('log', `[SIQS SUCCESS!] Found factors: ${f1.toString()} & ${f2.toString()}`, "success");
 
-                this.engine.queue.push(f1);
-                this.engine.queue.push(f2);
-
                 this.active = false;
-                this.engine.activeTarget = null;
-                setTimeout(() => this.engine.processQueue(), 10);
+                this.engine.handleCoordinatorResult(f1, f2);
                 return;
             }
         }
         this.engine.emit('log', "[SIQS FAILURE] Dependencies exhausted without non-trivial factors. Falling back to ECM.", "error");
         // Fallback to ECM
         this.active = false;
-        this.engine.emit('hideSIQSPanel');
-        this.engine.emit('log', `[FALLBACK] Dispatching ${this.engine.activeTarget.toString()} to ECM Suite...`, 'sys');
-
-        this.engine.activeWorkersCount = this.engine.maxWorkers;
-        this.engine.workers.forEach(w => w.postMessage({
-            cmd: 'FACTORIZE',
-            target: this.engine.activeTarget,
-            params: this.engine.currentParams
-        }));
+        this.engine.handleCoordinatorFallback();
     }
 
 

@@ -202,6 +202,25 @@ class FactorizationEngine extends EventEmitter {
         setTimeout(() => this.processQueue(), 10);
     }
 
+    handleCoordinatorResult(f1, f2) {
+        this.queue.push(f1);
+        this.queue.push(f2);
+        this.activeTarget = null;
+        setTimeout(() => this.processQueue(), 10);
+    }
+
+    handleCoordinatorFallback() {
+        this.emit('hideSIQSPanel');
+        this.emit('log', `[FALLBACK] Dispatching ${this.activeTarget.toString()} to ECM Suite...`, 'sys');
+
+        this.activeWorkersCount = this.maxWorkers;
+        this.workers.forEach(w => w.postMessage({
+            cmd: 'FACTORIZE',
+            target: this.activeTarget,
+            params: this.currentParams
+        }));
+    }
+
     processQueue() {
         if (!this.isRunning) return;
 
