@@ -1,5 +1,7 @@
 importScripts('../core/math.js', '../core/math_utils.js', 'context.js', 'siqs.js');
 
+const PHASE_ECM_WASM = "ECM Phase (WASM)";
+
 // Load WASM
 let wasmModule;
 let wasmReadyPromise;
@@ -96,7 +98,7 @@ self.onmessage = async (e) => {
                 }
             }
             await ctx.yieldIfNeeded(); if (ctx.shouldStop) return;
-            ctx.sendPhase("ECM Phase (WASM)", "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
+            ctx.sendPhase(PHASE_ECM_WASM, "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
 
             // --- WASM INTEGRATION: Stateful / Non-blocking ---
             let ecmRunner = new wasm_bindgen.EcmRunner(n_bytes, params.b1);
@@ -110,7 +112,7 @@ self.onmessage = async (e) => {
                 }
 
                 let curves_to_run = Math.min(chunk_size, params.maxCurves - curves_run);
-                ctx.sendPhase("ECM Phase (WASM)", "Curves " + curves_run + " / " + params.maxCurves, true);
+                ctx.sendPhase(PHASE_ECM_WASM, "Curves " + curves_run + " / " + params.maxCurves, true);
 
                 let ecmFactorBytes = ecmRunner.run_curves(curves_to_run);
                 if (ecmFactorBytes) {
