@@ -9,19 +9,21 @@ extern "C" {
     fn log(s: &str);
 }
 
+pub mod ecm;
+
 // Fixed-size BigInt using ruint. Since our max is around 65 digits (~215 bits), U256 is perfect.
 // For multiplications that double the size, we can use U512.
-type Int = U256;
-type DoubleInt = U512;
+pub(crate) type Int = U256;
+pub(crate) type DoubleInt = U512;
 
 // PRNG (Xoroshiro128++)
-struct Xoroshiro128PlusPlus {
+pub(crate) struct Xoroshiro128PlusPlus {
     s0: u64,
     s1: u64,
 }
 
 impl Xoroshiro128PlusPlus {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut seed = [0u8; 16];
         getrandom(&mut seed).expect("Failed to get random seed");
         let s0 = u64::from_le_bytes(seed[0..8].try_into().unwrap());
@@ -29,7 +31,7 @@ impl Xoroshiro128PlusPlus {
         Self { s0, s1 }
     }
 
-    fn next(&mut self) -> u64 {
+    pub(crate) fn next(&mut self) -> u64 {
         let s0 = self.s0;
         let mut s1 = self.s1;
         let result = s0.wrapping_add(s1).rotate_left(17).wrapping_add(s0);
@@ -43,7 +45,7 @@ impl Xoroshiro128PlusPlus {
 }
 
 // Montgomery Space for U256
-struct MontgomerySpace {
+pub(crate) struct MontgomerySpace {
     n: Int,
     n_inv: Int,
     r2: Int, // R^2 mod N, for converting *to* Montgomery space
@@ -60,40 +62,60 @@ impl MontgomerySpace {
 
         // Compute R^2 mod N
         // R = 2^256. R^2 = 2^512.
-        let mut r2: DoubleInt = DoubleInt::from(1) << 512;
-        r2 = r2 % DoubleInt::from(n);
+        let r: DoubleInt = DoubleInt::from(1) << 256;
+        let r_mod: DoubleInt = r % DoubleInt::from(n);
+        let r2: DoubleInt = r_mod.wrapping_mul(r_mod) % DoubleInt::from(n);
         let r2_limbs: [u64; 4] = r2.as_limbs()[..4].try_into().unwrap();
         let r2 = Int::from_limbs(r2_limbs);
 
         Self { n, n_inv, r2 }
     }
 
-    fn transform(&self, x: Int) -> Int {
+    pub(crate) fn transform(&self, x: Int) -> Int {
         self.mul(x, self.r2)
     }
 
     // Montgomery reduction: T * R^-1 mod N
-    fn reduce(&self, t: DoubleInt) -> Int {
+    pub(crate) fn reduce(&self, t: DoubleInt) -> Int {
         let t_limbs: [u64; 4] = t.as_limbs()[..4].try_into().unwrap();
         let t_low = Int::from_limbs(t_limbs);
         let m = t_low.wrapping_mul(self.n_inv);
         let mn = DoubleInt::from(m).wrapping_mul(DoubleInt::from(self.n));
-        let res: DoubleInt = t.wrapping_add(mn) >> 256;
+
+        let (sum, carry) = t.overflowing_add(mn);
+        let res: DoubleInt = sum >> 256;
         let res_limbs: [u64; 4] = res.as_limbs()[..4].try_into().unwrap();
         let mut res_int = Int::from_limbs(res_limbs);
 
-        if res_int >= self.n || (t.wrapping_add(mn) < t) { // Handle carry out if any
-            res_int = res_int.wrapping_sub(self.n);
+        if carry {
+            // Carry out represents exactly 2^512. After shifting right by 256, it's 2^256.
+            // But we operate within modulo self.n, and 2^256 = R.
+            // Actually, in the standard Montgomery reduction:
+            // (T + m*N) / R. If there's a carry out, we just add 1 to the MSB, which is equivalent to adding 1.
+            // Wait, (T + m*N) is exactly divisible by R. The 256 lower bits are 0.
+            // The value is exactly sum >> 256 + carry * (2^512 >> 256), which is + carry * 2^256.
+            // Mod N, we can just subtract N.
+            // In typical U256 math, the top bit carry means the value is at least 2^256 > N.
+            // So we can compute res_int = res_int.wrapping_sub(self.n) + carry bit handling.
+
+            // To be entirely safe and precise without manual carry arithmetic:
+            let (mut new_res, _sub_carry) = res_int.overflowing_sub(self.n);
+            // Since we had a 2^256 carry out, after subtracting N, the result must be correct.
+            // In U256 math, sub_carry occurs if res_int < self.n, but we know the true value is res_int + 2^256.
+            // So res_int + 2^256 - self.n is exactly res_int.wrapping_sub(self.n).
+            res_int = new_res;
+        } else if res_int >= self.n {
+            res_int = res_int - self.n;
         }
         res_int
     }
 
-    fn mul(&self, a: Int, b: Int) -> Int {
+    pub(crate) fn mul(&self, a: Int, b: Int) -> Int {
         let t = DoubleInt::from(a).wrapping_mul(DoubleInt::from(b));
         self.reduce(t)
     }
 
-    fn add(&self, a: Int, b: Int) -> Int {
+    pub(crate) fn add(&self, a: Int, b: Int) -> Int {
         let (res, carry) = a.overflowing_add(b);
         if carry || res >= self.n {
             res.wrapping_sub(self.n)
@@ -102,7 +124,7 @@ impl MontgomerySpace {
         }
     }
 
-    fn sub(&self, a: Int, b: Int) -> Int {
+    pub(crate) fn sub(&self, a: Int, b: Int) -> Int {
         if a >= b {
             a - b
         } else {
@@ -112,7 +134,7 @@ impl MontgomerySpace {
 }
 
 // Math utils
-fn gcd(mut a: Int, mut b: Int) -> Int {
+pub(crate) fn gcd(mut a: Int, mut b: Int) -> Int {
     while b > Int::from(0) {
         let temp = b;
         b = a % b;
@@ -148,6 +170,136 @@ fn jacobi(mut a: Int, mut n: Int) -> i32 {
         a = a % n;
     }
     if n == Int::from(1) { t } else { 0 }
+}
+
+fn strong_lucas_test(n: Int) -> bool {
+    // Port of strongLucasTest from math.js
+    let mut d = n + Int::from(1);
+    let mut s = 0;
+    while d.as_limbs()[0] & 1 == 0 {
+        s += 1;
+        d >>= 1;
+    }
+
+    // Find D
+    let mut d_val = Int::from(5);
+    let mut sign = 1i32;
+    loop {
+        // D * sign
+        let mut a = d_val;
+        if sign == -1 {
+            a = n - d_val; // Since n is odd and d_val < n
+        }
+        let j = jacobi(a, n);
+        if j == -1 {
+            break;
+        }
+        if j == 0 {
+            return false;
+        }
+        d_val = d_val + Int::from(2);
+        sign = -sign;
+    }
+
+    let p_val = Int::from(1);
+    // Q = (1 - D) / 4 mod n. Since D = d_val * sign, 1 - D = 1 - d_val * sign
+    let q_val = if sign == 1 {
+        // 1 - d_val mod n => n + 1 - d_val
+        let num = n + Int::from(1) - d_val;
+        // Divide by 4 mod n: num * 4^-1 mod n
+        // Since n is odd, we can just do:
+        let mut q = num;
+        while q.as_limbs()[0] % 4 != 0 {
+            q = q + n;
+        }
+        q >> 2
+    } else {
+        // 1 + d_val mod n
+        let mut q = Int::from(1) + d_val;
+        while q.as_limbs()[0] % 4 != 0 {
+            q = q + n;
+        }
+        q >> 2
+    };
+
+    let q_val = q_val % n;
+
+    let mut u = Int::from(1);
+    let mut v = p_val;
+    let mut qk = q_val;
+
+    let d_bits = 256 - d.leading_zeros(); // bit length
+
+    for i in (0..d_bits - 1).rev() {
+        // U_2k = (U * V) % n
+        let u_double = DoubleInt::from(u).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
+        let mut u_2k = Int::from_limbs(u_double.as_limbs()[..4].try_into().unwrap());
+
+        // V_2k = (V * V - 2 * Qk) % n
+        let v2 = DoubleInt::from(v).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
+        let qk2 = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(2)) % DoubleInt::from(n);
+        let v_2k_mod = if v2 >= qk2 { v2 - qk2 } else { v2 + DoubleInt::from(n) - qk2 };
+        let mut v_2k = Int::from_limbs(v_2k_mod.as_limbs()[..4].try_into().unwrap());
+
+        let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
+        qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
+
+        u = u_2k;
+        v = v_2k;
+
+        if ((d >> i) & Int::from(1)) == Int::from(1) {
+            // U_next = (P * U + V) / 2 % n
+            let mut u_next = DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
+            u_next = (u_next + DoubleInt::from(v)) % DoubleInt::from(n);
+            let mut u_next_int = Int::from_limbs(u_next.as_limbs()[..4].try_into().unwrap());
+            if u_next_int.as_limbs()[0] & 1 == 1 {
+                u_next = (DoubleInt::from(u_next_int) + DoubleInt::from(n)) >> 1;
+                u_next_int = Int::from_limbs(u_next.as_limbs()[..4].try_into().unwrap());
+            } else {
+                u_next_int >>= 1;
+            }
+
+            // V_next = (D * U + P * V) / 2 % n
+            let mut v_next_part1 = DoubleInt::from(d_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
+            if sign == -1 {
+                v_next_part1 = if v_next_part1 == DoubleInt::from(0) { DoubleInt::from(0) } else { DoubleInt::from(n) - v_next_part1 };
+            }
+            let mut v_next_part2 = DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
+            let mut v_next = (v_next_part1 + v_next_part2) % DoubleInt::from(n);
+            let mut v_next_int = Int::from_limbs(v_next.as_limbs()[..4].try_into().unwrap());
+            if v_next_int.as_limbs()[0] & 1 == 1 {
+                v_next = (DoubleInt::from(v_next_int) + DoubleInt::from(n)) >> 1;
+                v_next_int = Int::from_limbs(v_next.as_limbs()[..4].try_into().unwrap());
+            } else {
+                v_next_int >>= 1;
+            }
+
+            u = u_next_int;
+            v = v_next_int;
+
+            let qk_q = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(q_val)) % DoubleInt::from(n);
+            qk = Int::from_limbs(qk_q.as_limbs()[..4].try_into().unwrap());
+        }
+    }
+
+    if u == Int::from(0) || v == Int::from(0) {
+        return true;
+    }
+
+    for _ in 1..s {
+        let v2 = DoubleInt::from(v).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
+        let qk2 = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(2)) % DoubleInt::from(n);
+        let v_next_mod = if v2 >= qk2 { v2 - qk2 } else { v2 + DoubleInt::from(n) - qk2 };
+        v = Int::from_limbs(v_next_mod.as_limbs()[..4].try_into().unwrap());
+
+        let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
+        qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
+
+        if v == Int::from(0) {
+            return true;
+        }
+    }
+    false
 }
 
 fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
@@ -187,7 +339,7 @@ fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
     false
 }
 
-fn int_from_le_slice(bytes: &[u8]) -> Int {
+pub(crate) fn int_from_le_slice(bytes: &[u8]) -> Int {
     let mut padded = [0u8; 32];
     let len = core::cmp::min(bytes.len(), 32);
     padded[..len].copy_from_slice(&bytes[..len]);
@@ -211,12 +363,9 @@ pub fn is_prime_bpsw_bytes(n_bytes: &[u8]) -> bool {
     }
 
     if n.as_limbs()[1] > 0 || n.as_limbs()[2] > 0 || n.as_limbs()[3] > 0 {
-        let mut prng = Xoroshiro128PlusPlus::new();
-        for _ in 0..10 {
-            let rand_base = (Int::from(prng.next()) % (n - Int::from(2))) + Int::from(2);
-            if !miller_rabin_base_mont(n, rand_base, &mont) { return false; }
-        }
+        if !miller_rabin_base_mont(n, Int::from(2), &mont) { return false; }
         if is_square(n) { return false; }
+        return strong_lucas_test(n);
     }
 
     true
@@ -239,483 +388,6 @@ pub fn sieve_primes_wasm(max: usize) -> Vec<u32> {
         }
     }
     is_prime.into_iter().enumerate().filter(|&(_, p)| p).map(|(i, _)| i as u32).collect()
-}
-
-#[wasm_bindgen]
-pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec<u8>> {
-    let n = int_from_le_slice(n_bytes);
-    if n == Int::from(0) || n == Int::from(1) { return None; }
-    let mont = MontgomerySpace::new(n);
-    let mut prng = Xoroshiro128PlusPlus::new();
-
-    let b1_big = Int::from(b1);
-    let b2_big = Int::from(b1 * 10);
-
-    let mut p1_primes = Vec::new();
-    let mut p2_primes = Vec::new();
-
-    for &p in primes {
-        let p_int = Int::from(p);
-        if p_int <= b1_big {
-            p1_primes.push(p);
-        } else if p_int <= b2_big {
-            p2_primes.push(p);
-        } else {
-            break;
-        }
-    }
-
-    let r_idx = (prng.next() as usize) % core::cmp::max(1, core::cmp::min(100, primes.len()));
-    let base_prime = Int::from(*primes.get(r_idx).unwrap_or(&2));
-    let mut a = mont.transform(base_prime);
-
-    // Phase 1
-    for &p in &p1_primes {
-        let mut q = p as u64;
-        let p_u64 = p as u64;
-        while q.saturating_mul(p_u64) <= b1 as u64 {
-            q *= p_u64;
-        }
-
-        let mut res = mont.transform(Int::from(1));
-        let mut base_pow = a;
-        let mut exp = q;
-        while exp > 0 {
-            if exp & 1 == 1 {
-                res = mont.mul(res, base_pow);
-            }
-            base_pow = mont.mul(base_pow, base_pow);
-            exp >>= 1;
-        }
-        a = res;
-    }
-
-    let res = mont.reduce(DoubleInt::from(a));
-    let g1 = gcd(if res >= Int::from(1) { res - Int::from(1) } else { n - Int::from(1) }, n);
-
-    if g1 > Int::from(1) && g1 < n {
-        return Some(g1.to_le_bytes::<32>().to_vec());
-    }
-    if g1 == n || p2_primes.is_empty() {
-        return None;
-    }
-
-    // Phase 2
-    let a_val = mont.reduce(DoubleInt::from(a));
-    if a_val == Int::from(1) { return None; }
-
-    let max_gap = 200usize;
-    let mut a_d = vec![mont.transform(Int::from(0)); max_gap / 2 + 1];
-    let a_2 = mont.mul(a, a);
-    a_d[1] = a_2;
-    for i in 2..=(max_gap / 2) {
-        a_d[i] = mont.mul(a_d[i - 1], a_2);
-    }
-
-    let mut current_q = p1_primes.last().cloned().unwrap_or(2) as u64;
-
-    let mut res = mont.transform(Int::from(1));
-    let mut base_pow = a;
-    let mut exp = current_q;
-    while exp > 0 {
-        if exp & 1 == 1 {
-            res = mont.mul(res, base_pow);
-        }
-        base_pow = mont.mul(base_pow, base_pow);
-        exp >>= 1;
-    }
-    let mut a_q = res;
-
-    let mut acc = mont.transform(Int::from(1));
-    let mut iters_since_check = 0;
-
-    for &next_q in &p2_primes {
-        let diff = next_q as isize - current_q as isize;
-        if diff as usize > max_gap {
-            let mut res2 = mont.transform(Int::from(1));
-            let mut base_pow2 = a;
-            let mut exp2 = next_q as u64;
-            while exp2 > 0 {
-                if exp2 & 1 == 1 {
-                    res2 = mont.mul(res2, base_pow2);
-                }
-                base_pow2 = mont.mul(base_pow2, base_pow2);
-                exp2 >>= 1;
-            }
-            a_q = res2;
-        } else {
-            a_q = mont.mul(a_q, a_d[diff as usize / 2]);
-        }
-        current_q = next_q as u64;
-
-        let one_mont = mont.transform(Int::from(1));
-        let term = mont.sub(a_q, one_mont);
-        acc = mont.mul(acc, term);
-        iters_since_check += 1;
-
-        if iters_since_check > 256 {
-            let g2 = gcd(mont.reduce(DoubleInt::from(acc)), n);
-            if g2 > Int::from(1) && g2 < n {
-                return Some(g2.to_le_bytes::<32>().to_vec());
-            }
-            if g2 == n { break; }
-            acc = mont.transform(Int::from(1));
-            iters_since_check = 0;
-        }
-    }
-    let g2 = gcd(mont.reduce(DoubleInt::from(acc)), n);
-    if g2 > Int::from(1) && g2 < n {
-        Some(g2.to_le_bytes::<32>().to_vec())
-    } else {
-        None
-    }
-}
-
-#[wasm_bindgen]
-pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> {
-    let n = int_from_le_slice(n_bytes);
-    if n == Int::from(0) { return None; }
-
-    let mont = MontgomerySpace::new(n);
-    let mut prng = Xoroshiro128PlusPlus::new();
-
-    let c_val = Int::from(prng.next()) % n;
-    let y_val = Int::from(prng.next()) % n;
-
-    let mut y = mont.transform(y_val);
-    let c = mont.transform(c_val);
-    let mut q = mont.transform(Int::from(1)); // 1 in Mont space
-    let m = 100usize;
-    let mut g = Int::from(1);
-    let mut r = 1usize;
-    let mut ys = y;
-    let mut x = y;
-    let mut iters = 0;
-
-    while g == Int::from(1) {
-        x = y;
-        for _ in 0..r {
-            let y_sq = mont.mul(y, y);
-            y = mont.add(y_sq, c);
-        }
-        let mut k = 0;
-        while k < r && g == Int::from(1) {
-            ys = y;
-            let limit = core::cmp::min(m, r - k);
-            for _ in 0..limit {
-                let y_sq = mont.mul(y, y);
-                y = mont.add(y_sq, c);
-                let diff = if y > x { y - x } else { x - y };
-                q = mont.mul(q, diff);
-            }
-            g = gcd(mont.reduce(DoubleInt::from(q)), n);
-            k += limit;
-            iters += limit;
-            if iters >= max_iters { return None; }
-        }
-        r *= 2;
-    }
-
-    if g == n {
-        let mut backtrack_limit = 0;
-        loop {
-            let ys_sq = mont.mul(ys, ys);
-            ys = mont.add(ys_sq, c);
-            let diff = if ys > x { ys - x } else { x - ys };
-            g = gcd(mont.reduce(DoubleInt::from(diff)), n);
-            backtrack_limit += 1;
-            if backtrack_limit > m { return None; }
-            if g != Int::from(1) { break; }
-        }
-    }
-
-    if g == n { None } else { Some(g.to_le_bytes::<32>().to_vec()) }
-}
-
-// Montgomery ECM operations
-fn xadd_mont_inplace(r0: &mut [Int; 2], r1: &[Int; 2], xdiff: Int, zdiff: Int, mont: &MontgomerySpace, dest: &mut [Int; 2]) {
-    let t1 = mont.sub(r0[0], r0[1]);
-    let t2 = mont.add(r1[0], r1[1]);
-    let t3 = mont.add(r0[0], r0[1]);
-    let t4 = mont.sub(r1[0], r1[1]);
-    let t5 = mont.mul(t1, t2);
-    let t6 = mont.mul(t3, t4);
-    let t7 = mont.add(t5, t6);
-    let t8 = mont.sub(t5, t6);
-    dest[0] = mont.mul(zdiff, mont.mul(t7, t7));
-    dest[1] = mont.mul(xdiff, mont.mul(t8, t8));
-}
-
-fn xadd_mont_inplace_z1(r0: &mut [Int; 2], r1: &[Int; 2], xdiff: Int, mont: &MontgomerySpace, dest: &mut [Int; 2]) {
-    let t1 = mont.sub(r0[0], r0[1]);
-    let t2 = mont.add(r1[0], r1[1]);
-    let t3 = mont.add(r0[0], r0[1]);
-    let t4 = mont.sub(r1[0], r1[1]);
-    let t5 = mont.mul(t1, t2);
-    let t6 = mont.mul(t3, t4);
-    let t7 = mont.add(t5, t6);
-    let t8 = mont.sub(t5, t6);
-    dest[0] = mont.mul(t7, t7);
-    dest[1] = mont.mul(xdiff, mont.mul(t8, t8));
-}
-
-fn xdbl_mont_inplace(r: &[Int; 2], a24: Int, mont: &MontgomerySpace, dest: &mut [Int; 2]) {
-    let t1 = mont.add(r[0], r[1]);
-    let t2 = mont.sub(r[0], r[1]);
-    let t3 = mont.mul(t1, t1);
-    let t4 = mont.mul(t2, t2);
-    let t5 = mont.sub(t3, t4);
-    dest[0] = mont.mul(t3, t4);
-    let temp = mont.add(t4, mont.mul(a24, t5));
-    dest[1] = mont.mul(t5, temp);
-}
-
-fn montgomery_ladder(k: usize, x: Int, z: Int, a24: Int, mont: &MontgomerySpace) -> [Int; 2] {
-    let mut r0 = [x, z];
-    let mut r1 = [Int::from(0), Int::from(0)];
-    xdbl_mont_inplace(&r0, a24, mont, &mut r1);
-
-    let is_z1 = z == mont.transform(Int::from(1));
-    let k_bits = 64 - k.leading_zeros() as usize;
-
-    for i in (0..k_bits - 1).rev() {
-        let mut next_r0 = [Int::from(0), Int::from(0)];
-        let mut next_r1 = [Int::from(0), Int::from(0)];
-        if ((k >> i) & 1) == 1 {
-            if is_z1 {
-                xadd_mont_inplace_z1(&mut r0, &r1, x, mont, &mut next_r0);
-            } else {
-                xadd_mont_inplace(&mut r0, &r1, x, z, mont, &mut next_r0);
-            }
-            xdbl_mont_inplace(&r1, a24, mont, &mut next_r1);
-        } else {
-            if is_z1 {
-                xadd_mont_inplace_z1(&mut r0, &r1, x, mont, &mut next_r1);
-            } else {
-                xadd_mont_inplace(&mut r0, &r1, x, z, mont, &mut next_r1);
-            }
-            xdbl_mont_inplace(&r0, a24, mont, &mut next_r0);
-        }
-        r0 = next_r0;
-        r1 = next_r1;
-    }
-    r0
-}
-
-fn ext_gcd_inverse_internal(a: Int, m: Int) -> Option<Int> {
-    let mut t = Int::from(0);
-    let mut newt = Int::from(1);
-    let mut r = m;
-    let mut newr = a;
-
-    while newr != Int::from(0) {
-        let quotient = r / newr;
-        let mut temp_t = t;
-        let mut temp_r = r;
-
-        let q_newt = quotient.wrapping_mul(newt);
-        t = newt;
-        if temp_t >= q_newt {
-            newt = temp_t - q_newt;
-        } else {
-            newt = m - ((q_newt - temp_t) % m);
-        }
-
-        r = newr;
-        newr = temp_r - quotient * newr;
-    }
-
-    if r > Int::from(1) {
-        None
-    } else {
-        Some(t)
-    }
-}
-
-fn get_suyama_curve(sigma: Int, n: Int) -> Option<(Int, Int)> {
-    let s = sigma;
-    let s2_double = DoubleInt::from(s).wrapping_mul(DoubleInt::from(s)) % DoubleInt::from(n);
-    let s2 = Int::from_limbs(s2_double.as_limbs()[..4].try_into().unwrap());
-
-    let s2_minus_5 = if s2 >= Int::from(5) { s2 - Int::from(5) } else { s2 + n - Int::from(5) };
-    let u = s2_minus_5 % n;
-    let v = Int::from_limbs((DoubleInt::from(4) * DoubleInt::from(s) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let u2 = Int::from_limbs((DoubleInt::from(u) * DoubleInt::from(u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let u3 = Int::from_limbs((DoubleInt::from(u2) * DoubleInt::from(u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let v2 = Int::from_limbs((DoubleInt::from(v) * DoubleInt::from(v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let v3 = Int::from_limbs((DoubleInt::from(v2) * DoubleInt::from(v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let x0 = u3;
-    let z0 = v3;
-
-    let v_u = if v >= u { v - u } else { v + n - u };
-    let v_u2 = Int::from_limbs((DoubleInt::from(v_u) * DoubleInt::from(v_u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let v_u3 = Int::from_limbs((DoubleInt::from(v_u2) * DoubleInt::from(v_u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let three_u = Int::from_limbs((DoubleInt::from(3) * DoubleInt::from(u) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let three_u_v = (three_u + v) % n;
-
-    let term1 = Int::from_limbs((DoubleInt::from(v_u3) * DoubleInt::from(three_u_v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let eight_u3 = Int::from_limbs((DoubleInt::from(8) * DoubleInt::from(u3) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let term2 = Int::from_limbs((DoubleInt::from(eight_u3) * DoubleInt::from(v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let a_num = if term1 >= term2 { term1 - term2 } else { term1 + n - term2 };
-
-    let four_u3 = Int::from_limbs((DoubleInt::from(4) * DoubleInt::from(u3) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let a_den = Int::from_limbs((DoubleInt::from(four_u3) * DoubleInt::from(v) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let two_a_den = Int::from_limbs((DoubleInt::from(2) * DoubleInt::from(a_den) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let a24_num = (a_num + two_a_den) % n;
-
-    let a24_den = Int::from_limbs((DoubleInt::from(4) * DoubleInt::from(a_den) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-
-    let z0_inv = ext_gcd_inverse_internal(z0, n)?;
-    let a24_den_inv = ext_gcd_inverse_internal(a24_den, n)?;
-
-    let a24 = Int::from_limbs((DoubleInt::from(a24_num) * DoubleInt::from(a24_den_inv) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let x0_scaled = Int::from_limbs((DoubleInt::from(x0) * DoubleInt::from(z0_inv) % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    Some((x0_scaled, a24))
-}
-
-#[wasm_bindgen]
-pub struct EcmRunner {
-    n: Int,
-    b1: usize,
-    mont: MontgomerySpace,
-    prng: Xoroshiro128PlusPlus,
-    phase1_powers: Vec<u64>,
-    phase2_primes: Vec<usize>,
-}
-
-#[wasm_bindgen]
-impl EcmRunner {
-    #[wasm_bindgen(constructor)]
-    pub fn new(n_bytes: &[u8], b1: usize) -> Self {
-        let n = int_from_le_slice(n_bytes);
-        let mont = MontgomerySpace::new(n);
-        let prng = Xoroshiro128PlusPlus::new();
-
-        let b2 = b1 * 50;
-        let mut sieved = vec![true; b2 + 1];
-        let mut primes = Vec::new();
-        for p in 2..=b2 {
-            if sieved[p] {
-                primes.push(p);
-                let mut j = p * p;
-                while j <= b2 {
-                    sieved[j] = false;
-                    j += p;
-                }
-            }
-        }
-
-        let mut phase1_powers = Vec::new();
-        for &p in &primes {
-            if p > b1 { break; }
-            let mut q = p;
-            while q * p <= b1 {
-                q *= p;
-            }
-            phase1_powers.push(q as u64);
-        }
-
-        let phase2_primes: Vec<usize> = primes.iter().filter(|&&p| p > b1 && p <= b2).cloned().collect();
-
-        EcmRunner {
-            n,
-            b1,
-            mont,
-            prng,
-            phase1_powers,
-            phase2_primes,
-        }
-    }
-
-    pub fn run_curves(&mut self, curves_to_run: usize) -> Option<Vec<u8>> {
-        if self.n == Int::from(0) || self.n == Int::from(1) { return None; }
-
-        for _ in 0..curves_to_run {
-            let sigma = Int::from(get_secure_sigma(&mut self.prng));
-            if let Some((x0, a24)) = get_suyama_curve(sigma, self.n) {
-                let x0_mont = self.mont.transform(x0);
-                let a24_mont = self.mont.transform(a24);
-                let mut p = [x0_mont, self.mont.transform(Int::from(1))];
-
-                for &power in &self.phase1_powers {
-                    p = montgomery_ladder(power as usize, p[0], p[1], a24_mont, &self.mont);
-                }
-
-                let z_val = self.mont.reduce(DoubleInt::from(p[1]));
-                let g1 = gcd(z_val, self.n);
-                if g1 > Int::from(1) && g1 < self.n {
-                    return Some(g1.to_le_bytes::<32>().to_vec());
-                }
-
-                if g1 == self.n || self.phase2_primes.is_empty() { continue; }
-
-                let d_val = 210usize;
-                let mut baby_x = vec![Int::from(0); 106];
-                let mut baby_z = vec![Int::from(0); 106];
-                for d in (1..=105).step_by(2) {
-                    let pt = montgomery_ladder(d, p[0], p[1], a24_mont, &self.mont);
-                    baby_x[d] = pt[0];
-                    baby_z[d] = pt[1];
-                }
-
-                let s = montgomery_ladder(d_val, p[0], p[1], a24_mont, &self.mont);
-                let first_q = self.phase2_primes[0];
-                let mut m_current = (first_q + d_val / 2) / d_val;
-                let mut r0 = montgomery_ladder(m_current, s[0], s[1], a24_mont, &self.mont);
-                let mut r1 = montgomery_ladder(m_current + 1, s[0], s[1], a24_mont, &self.mont);
-
-                let mut acc = self.mont.transform(Int::from(1));
-                let mut iters_since_check = 0;
-
-                for &q in &self.phase2_primes {
-                    let m = (q + d_val / 2) / d_val;
-                    let d_diff = q as isize - (m * d_val) as isize;
-                    let abs_d = d_diff.unsigned_abs();
-
-                    while m_current < m {
-                        let mut next_r1 = [Int::from(0), Int::from(0)];
-                        xadd_mont_inplace(&mut r1, &s, r0[0], r0[1], &self.mont, &mut next_r1);
-                        r0 = r1;
-                        r1 = next_r1;
-                        m_current += 1;
-                    }
-
-                    let diff = self.mont.sub(self.mont.mul(r0[0], baby_z[abs_d]), self.mont.mul(baby_x[abs_d], r0[1]));
-                    acc = self.mont.mul(acc, diff);
-                    iters_since_check += 1;
-
-                    if iters_since_check > 256 {
-                        let acc_val = self.mont.reduce(DoubleInt::from(acc));
-                        let g2 = gcd(acc_val, self.n);
-                        if g2 > Int::from(1) && g2 < self.n {
-                            return Some(g2.to_le_bytes::<32>().to_vec());
-                        }
-                        if g2 == self.n { break; }
-                        acc = self.mont.transform(Int::from(1));
-                        iters_since_check = 0;
-                    }
-                }
-                let acc_val = self.mont.reduce(DoubleInt::from(acc));
-                let g2 = gcd(acc_val, self.n);
-                if g2 > Int::from(1) && g2 < self.n {
-                    return Some(g2.to_le_bytes::<32>().to_vec());
-                }
-            }
-        }
-        None
-    }
-}
-
-fn get_secure_sigma(prng: &mut Xoroshiro128PlusPlus) -> u64 {
-    let s = prng.next() as u32 as u64;
-    if s > 5 { s } else { s + 6 }
 }
 
 // This is a dummy function just to ensure the file parses successfully.
@@ -770,7 +442,7 @@ impl SiqsReducer {
         let mut id = vec![vec![0u32; id_words]; num_rows];
 
         for i in 0..num_rows {
-            id[i][i / 32] |= 1 << (i % 32);
+            id[i][i / 32] |= 1u32 << (i % 32);
 
             let rel = &self.relations[i];
             if rel.sign == -1 {
@@ -781,7 +453,7 @@ impl SiqsReducer {
                 let col_idx = (f_idx + 1) as usize;
                 let w_idx = col_idx / 32;
                 let b_idx = col_idx % 32;
-                m[i][w_idx] ^= 1 << b_idx;
+                m[i][w_idx] ^= 1u32 << b_idx;
             }
         }
 
@@ -792,7 +464,7 @@ impl SiqsReducer {
 
             let mut r = None;
             for i in num_pivots..num_rows {
-                if (m[i][w_idx] & (1 << b_idx)) != 0 {
+                if (m[i][w_idx] & (1u32 << b_idx)) != 0 {
                     r = Some(i);
                     break;
                 }
@@ -804,7 +476,7 @@ impl SiqsReducer {
 
                 for i in 0..num_rows {
                     if i != num_pivots {
-                        if (m[i][w_idx] & (1 << b_idx)) != 0 {
+                        if (m[i][w_idx] & (1u32 << b_idx)) != 0 {
                             for w in 0..words {
                                 m[i][w] ^= m[num_pivots][w];
                             }
@@ -822,7 +494,7 @@ impl SiqsReducer {
         for i in num_pivots..num_rows {
             let mut dep = Vec::new();
             for j in 0..num_rows {
-                if (id[i][j / 32] & (1 << (j % 32))) != 0 {
+                if (id[i][j / 32] & (1u32 << (j % 32))) != 0 {
                     dep.push(j);
                 }
             }
@@ -852,8 +524,8 @@ impl SiqsReducer {
 
                 let term_prod = DoubleInt::from(rel_a).wrapping_mul(DoubleInt::from(rel_x));
                 let term_mod = term_prod % DoubleInt::from(self.n);
-                let mut term = Int::from_limbs(term_mod.as_limbs()[..4].try_into().unwrap());
-                term = (term + rel_b) % self.n;
+                let term_add = (term_mod + DoubleInt::from(rel_b)) % DoubleInt::from(self.n);
+                let term = Int::from_limbs(term_add.as_limbs()[..4].try_into().unwrap());
 
                 let x_prod = DoubleInt::from(x_val).wrapping_mul(DoubleInt::from(term));
                 let x_mod = x_prod % DoubleInt::from(self.n);
@@ -900,13 +572,14 @@ impl SiqsReducer {
                 continue;
             }
 
-            let mut diff = if x_val >= y_val { x_val - y_val } else { x_val + self.n - y_val };
+            let diff = if x_val >= y_val { x_val - y_val } else { x_val + self.n - y_val };
             let mut g = gcd(diff, self.n);
             if g > Int::from(1) && g < self.n {
                 return Some(g.to_le_bytes::<32>().to_vec());
             }
 
-            let sum = (x_val + y_val) % self.n;
+            let sum_double = (DoubleInt::from(x_val) + DoubleInt::from(y_val)) % DoubleInt::from(self.n);
+            let sum = Int::from_limbs(sum_double.as_limbs()[..4].try_into().unwrap());
             g = gcd(sum, self.n);
             if g > Int::from(1) && g < self.n {
                 return Some(g.to_le_bytes::<32>().to_vec());
@@ -915,3 +588,4 @@ impl SiqsReducer {
         None
     }
 }
+pub mod siqs;
