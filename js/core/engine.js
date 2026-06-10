@@ -102,7 +102,7 @@ export class FactorizationEngine extends EventEmitter {
         this.emit('log', `[SYSTEM START] Factorization target: ${targetBig.toString()}`, "sys");
 
         // Always re-initialize to ensure fresh state/primes and explicitly wait for MSG_TYPE_INIT_COMPLETE
-        let sLimit = Math.max(this.currentParams.trialLimit, this.currentParams.b1 * 50, 10000);
+        let sLimit = Math.min(100000000, Math.max(this.currentParams.trialLimit, this.currentParams.b1 * 50, 10000));
         this.emit('log', "[SYSTEM WAITING] Waiting for core initialization...", "sys");
         this.workerPool.reInit(sLimit);
     }
@@ -129,7 +129,7 @@ export class FactorizationEngine extends EventEmitter {
             this.stopTimeout = setTimeout(() => {
                 this.emit('log', "[SYSTEM WARNING] Workers failed to acknowledge stop signal within timeout. Hard-terminating...", "warning");
                 // Terminate and recreate pool
-                let sLimit = Math.max(this.currentParams.trialLimit || 10000, (this.currentParams.b1 || 0) * 50, 10000);
+                let sLimit = Math.min(100000000, Math.max(this.currentParams.trialLimit || 10000, (this.currentParams.b1 || 0) * 50, 10000));
                 this.workerPool.terminateAndRecreate(sLimit);
                 this.finalizeStop();
             }, 3000);

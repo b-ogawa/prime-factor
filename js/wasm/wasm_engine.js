@@ -129,7 +129,10 @@ export class SiqsWorker {
         const ptr3 = passArray8ToWasm0(fb_r_bytes, wasm.__wbindgen_malloc);
         const len3 = WASM_VECTOR_LEN;
         const ret = wasm.siqsworker_new(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, sieve_limit, worker_id);
-        this.__wbg_ptr = ret;
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
         SiqsWorkerFinalization.register(this, this.__wbg_ptr, this);
         return this;
     }
@@ -525,6 +528,12 @@ function passStringToWasm0(arg, malloc, realloc) {
 
     WASM_VECTOR_LEN = offset;
     return ptr;
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
 }
 
 let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
