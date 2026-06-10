@@ -31,15 +31,17 @@ pub struct SiqsWorker {
     m: usize,
     prng: Xoroshiro128PlusPlus,
     worker_id: usize,
+    core_count: usize,
     s_val: usize,
     kn: Int, // The target kN
     sieve: Vec<u16>, // Reused sieve array to avoid reallocation
+    result_buf: Vec<u8>,
 }
 
 #[wasm_bindgen]
 impl SiqsWorker {
     #[wasm_bindgen(constructor)]
-    pub fn new(kn_bytes: &[u8], fb_primes: &[u32], fb_logs: &[u8], fb_r_bytes: &[u8], sieve_limit: usize, worker_id: usize) -> Result<SiqsWorker, JsValue> {
+    pub fn new(kn_bytes: &[u8], fb_primes: &[u32], fb_logs: &[u8], fb_r_bytes: &[u8], sieve_limit: usize, worker_id: usize, core_count: usize) -> Result<SiqsWorker, JsValue> {
         if sieve_limit < 100 {
             return Err(JsValue::from_str("sieve_limit must be at least 100"));
         }
@@ -91,9 +93,11 @@ impl SiqsWorker {
             m: sieve_limit / 2,
             prng,
             worker_id,
+            core_count,
             s_val,
             kn,
             sieve: vec![0u16; sieve_limit],
+            result_buf: Vec::new(),
         })
     }
 }
@@ -154,7 +158,7 @@ pub(crate) fn evaluate_polynomial(a: Int, b: Int, c: Int, c_is_neg: bool, x: Int
 // Sieve core logic
 #[wasm_bindgen]
 impl SiqsWorker {
-    pub fn step(&mut self, batch_size: usize) -> Vec<u8> {
+    pub fn step(&mut self, batch_size: usize) -> usize {
         let mut relations_data = Vec::new();
         let mut relations_count = 0u32;
         let mut polys_searched = 0u64;
@@ -245,7 +249,7 @@ impl SiqsWorker {
                     let cand = last_idx as isize + offset * sign;
                     if cand >= start_idx as isize && cand < fb_len as isize {
                         let r_cand = cand as usize;
-                        if !used[r_cand] {
+                        if !used[r_cand] && (r_cand % self.core_count == self.worker_id) {
                             let diff = (self.fb[r_cand] as i64 - target_rem as i64).abs();
                             if diff < best_diff {
                                 best_diff = diff;
@@ -254,7 +258,7 @@ impl SiqsWorker {
                         }
                     }
                 }
-                if best_diff == 0 { break; }
+                if best_diff < i64::MAX { break; }
             }
 
             q_indices[s - 1] = best_r;
@@ -477,6 +481,15 @@ impl SiqsWorker {
         output.extend_from_slice(&polys_searched.to_le_bytes());
         output.extend_from_slice(&relations_count.to_le_bytes());
         output.extend_from_slice(&relations_data);
-        output
+        self.result_buf = output;
+        self.result_buf.len()
+    }
+
+    pub fn result_ptr(&self) -> *const u8 {
+        self.result_buf.as_ptr()
+    }
+
+    pub fn result_len(&self) -> usize {
+        self.result_buf.len()
     }
 }

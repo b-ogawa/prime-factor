@@ -2,7 +2,7 @@ use crate::{gcd, int_from_le_slice, DoubleInt, Int, MontgomerySpace, Xoroshiro12
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec<u8>> {
+pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32], worker_id: usize) -> Option<Vec<u8>> {
     let n = int_from_le_slice(n_bytes);
     if n == Int::from(0) || n == Int::from(1) {
         return None;
@@ -12,6 +12,9 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec
     }
     let mont = MontgomerySpace::new(n);
     let mut prng = Xoroshiro128PlusPlus::new();
+    for _ in 0..worker_id {
+        prng.next();
+    }
 
     let b1_big = Int::from(b1);
     let b2_big = Int::from(b1 * 10);
@@ -150,7 +153,7 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec
 }
 
 #[wasm_bindgen]
-pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> {
+pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize, worker_id: usize) -> Option<Vec<u8>> {
     let n = int_from_le_slice(n_bytes);
     if n == Int::from(0) || n == Int::from(1) {
         return None;
@@ -160,6 +163,9 @@ pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> 
     }
     let mont = MontgomerySpace::new(n);
     let mut prng = Xoroshiro128PlusPlus::new();
+    for _ in 0..worker_id {
+        prng.next();
+    }
 
     let c_val = Int::from(prng.next()) % n;
     let y_val = Int::from(prng.next()) % n;
