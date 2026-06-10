@@ -373,7 +373,7 @@ impl EcmRunner {
         let b2 = b1 * 50;
         let mut sieved = vec![true; b2 + 1];
         let mut primes = Vec::new();
-
+        
         let limit = (b2 as f64).sqrt() as usize;
         for p in 2..=limit {
             if sieved[p] {

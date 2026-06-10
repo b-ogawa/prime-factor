@@ -30,6 +30,10 @@ class WorkerContext {
     async checkYieldAndStop(expectedTaskId) {
         await this.yieldIfNeeded();
         if (this.shouldStop || this.currentTaskId !== expectedTaskId) {
+            if (this.shouldStop && !this.stopAckSent) {
+                this.stopAckSent = true;
+                postMessage({ type: MSG_TYPE_STOP_ACK, workerId: this.workerId });
+            }
             return true; // Indicates we should stop
         }
         return false;

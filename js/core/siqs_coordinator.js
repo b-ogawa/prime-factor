@@ -1,7 +1,8 @@
-class SIQSCoordinator {
-    constructor(engine) {
-        this.engine = engine; // Reference to FactorizationEngine
+class SIQSCoordinator extends EventEmitter {
+    constructor() {
+        super();
         this.active = false;
+        this.activeTarget = null;
         this.FB = [];
         this.relations = [];
         this.relationSignatures = new Set();
@@ -56,6 +57,7 @@ class SIQSCoordinator {
 
     runPipeline(N, maxWorkers) {
         this.active = true;
+        this.activeTarget = N;
         this.relations = [];
         this.relationSignatures = new Set();
         this.startTime = Date.now();
@@ -68,40 +70,35 @@ class SIQSCoordinator {
         let digits = kN.toString().length;
         let params = this.getSIQSParams(digits);
 
-        this.engine.emit('log', `[SIQS INITIATED] Target N routed to True SIQS. Multiplier k=${k}`, "sys");
-        this.engine.emit('log', `[SIQS CONFIG] Factor Base: ${params.fbSize} | Sieve Limit M: ${params.M}`, "sys");
+        this.emit('log', `[SIQS INITIATED] Target N routed to True SIQS. Multiplier k=${k}`, "sys");
+        this.emit('log', `[SIQS CONFIG] Factor Base: ${params.fbSize} | Sieve Limit M: ${params.M}`, "sys");
 
-        this.engine.emit('updateStatus', "RUNNING", true, N.toString());
-        this.engine.emit('showSIQSPanel', params.fbSize + 15);
+        this.emit('siqsActivated', params.fbSize + 15);
 
         // Generate Factor Base using kN
         let FB = generateFactorBase(kN, params.fbSize);
         this.FB = FB;
         this.targetCount = FB.length + 15;
 
-        let n_bytes = bigIntToBytesLE(N);
-        let kn_bytes = bigIntToBytesLE(kN);
         let fb_arr = new Uint32Array(FB.map(f => f.p));
-        this.wasmReducer = new wasm_bindgen.SiqsReducer(n_bytes, kn_bytes, fb_arr);
+        this.wasmReducer = WasmAdapter.createSiqsReducer(N, kN, fb_arr);
 
         // Dispatch tasks
-        this.engine.workers.forEach(w => {
-            w.postMessage({
-                cmd: 'SIQS_FACTORIZE',
-                target: N,
-                kN: kN.toString(),
-                params: {
-                    fbSize: params.fbSize,
-                    M: params.M,
-                    sieveLimit: Math.max(params.M * 2, 10000),
-                    maxWorkers: maxWorkers
-                }
-            });
+        this.emit('siqsTaskGenerated', {
+            cmd: MSG_CMD_SIQS_FACTORIZE,
+            target: N,
+            kN: kN.toString(),
+            params: {
+                fbSize: params.fbSize,
+                M: params.M,
+                sieveLimit: Math.max(params.M * 2, 10000),
+                maxWorkers: maxWorkers
+            }
         });
     }
 
     handleRelation(data) {
-        if (!this.active || this.engine.activeTarget !== data.target) return;
+        if (!this.active || this.activeTarget !== data.target) return;
         
         if (!this.partialRelations) this.partialRelations = new Map();
 
@@ -113,7 +110,7 @@ class SIQSCoordinator {
                 let r2 = data.rel;
                 
                 // Combine r1 and r2 into a full relation
-                let kNBig = BigInt(this.engine.activeTarget) * this.k;
+                let kNBig = BigInt(this.activeTarget) * this.k;
                 let L = BigInt(lp);
                 
                 // V1 = A1 * x1^2 + 2 * B1 * x1 + C1? No, we need A1*x1 + B1
@@ -162,59 +159,74 @@ class SIQSCoordinator {
             this.relations.push(data.rel);
 
             // Add relation to WASM reducer
-            let nBig = BigInt(this.engine.activeTarget);
+            let nBig = BigInt(this.activeTarget);
             let kNBig = nBig * this.k;
             let xBig = BigInt(data.rel.x);
             // Normalize x mod kN to avoid negative number serialization issues
             xBig = (xBig % kNBig + kNBig) % kNBig;
 
-            let xBytes = bigIntToBytesLE(xBig);
-            let bBytes = bigIntToBytesLE(BigInt(data.rel.B));
-            let aBytes = data.rel.A ? bigIntToBytesLE(BigInt(data.rel.A)) : new Uint8Array(0);
-            let factorsArr = new Uint32Array(data.rel.factors);
-            this.wasmReducer.add_relation(data.rel.sign, xBytes, bBytes, aBytes, factorsArr);
+            WasmAdapter.addSiqsRelation(
+                this.wasmReducer,
+                data.rel.sign,
+                xBig,
+                BigInt(data.rel.B),
+                data.rel.A ? BigInt(data.rel.A) : null,
+                data.rel.factors
+            );
 
             let speed = Math.round((this.relations.length / Math.max(1, Date.now() - this.startTime)) * 1000);
-            this.engine.emit('updateSIQSProgress', this.relations.length, this.targetCount, data.polyCount, speed);
+            this.emit('siqsProgress', this.relations.length, this.targetCount, data.polyCount, speed);
 
             if (this.relations.length >= this.targetCount && !this.isReducing) {
                 this.isReducing = true;
                 // Relations collected
-                this.engine.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
-                this.engine.stopWorkers();
+                this.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
+                this.emit('siqsStopWorkers');
 
                 setTimeout(() => this.reduceMatrix(), 10);
             }
         }
     }
 
-    reduceMatrix() {
-        if (!this.active || !this.engine.activeTarget) return;
-
-        this.engine.emit('log', "[SIQS] Running WASM Bit-packed Gaussian Elimination & Evaluation...", "sys");
-        this.engine.emit('updateStatus', "SIQS: Reducing Matrix (WASM)");
-
-        let factorBytes = this.wasmReducer.reduce_matrix();
-        let factor = factorBytes ? bytesToBigIntLE(factorBytes) : null;
-
-        // Free WASM memory
-        this.wasmReducer.free();
-
-        if (factor && factor > 1n) {
-            let f1 = gcd(factor, this.engine.activeTarget);
-            if (f1 > 1n && f1 < this.engine.activeTarget) {
-                let f2 = this.engine.activeTarget / f1;
-                this.engine.emit('log', `[SIQS SUCCESS!] Found factors: ${f1.toString()} & ${f2.toString()}`, "success");
-
-                this.active = false;
-                this.engine.handleCoordinatorResult(f1, f2);
-                return;
-            }
-        }
-        this.engine.emit('log', "[SIQS FAILURE] Dependencies exhausted without non-trivial factors. Falling back to ECM.", "error");
-        // Fallback to ECM
+    stop() {
         this.active = false;
-        this.engine.handleCoordinatorFallback();
+        if (this.wasmReducer) {
+            try {
+                this.wasmReducer.free();
+            } catch (e) {
+                console.warn("WASM Reducer free error:", e);
+            }
+            this.wasmReducer = null;
+        }
+    }
+
+    reduceMatrix() {
+        if (!this.active || !this.activeTarget) return;
+
+        this.emit('log', "[SIQS] Running WASM Bit-packed Gaussian Elimination & Evaluation...", "sys");
+
+        try {
+            let factor = WasmAdapter.siqsReduceMatrix(this.wasmReducer);
+
+            if (factor && factor > 1n) {
+                let f1 = gcd(factor, this.activeTarget);
+                if (f1 > 1n && f1 < this.activeTarget) {
+                    let f2 = this.activeTarget / f1;
+                    this.emit('log', `[SIQS SUCCESS!] Found factors: ${f1.toString()} & ${f2.toString()}`, "success");
+
+                    this.active = false;
+                    this.emit('siqsSuccess', f1, f2);
+                    return;
+                }
+            }
+            this.emit('log', "[SIQS FAILURE] Dependencies exhausted without non-trivial factors. Falling back to ECM.", "error");
+            // Fallback to ECM
+            this.active = false;
+            this.emit('siqsFallback');
+        } finally {
+            // Free WASM memory
+            this.wasmReducer.free();
+        }
     }
 
 

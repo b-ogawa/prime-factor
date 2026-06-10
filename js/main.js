@@ -14,14 +14,39 @@ window.onload = async () => {
     engine.on('setCoreCount', (c) => ui.setCoreCount(c));
     engine.on('initCoreUI', (c) => ui.initCoreUI(c));
     engine.on('log', (m, t) => ui.log(m, t));
-    engine.on('updateStatus', (s, a, t) => ui.updateStatus(s, a, t));
     engine.on('renderFactors', (f, u) => ui.renderFactors(f, u));
-    engine.on('setButtonsRunning', () => ui.setButtonsRunning());
-    engine.on('setButtonsIdle', () => ui.setButtonsIdle());
-    engine.on('hideSIQSPanel', () => ui.hideSIQSPanel());
-    engine.on('showSIQSPanel', (c) => ui.showSIQSPanel(c));
+    
+    // Map Domain Events to UI Actions
+    engine.on('engineStateChanged', (state) => {
+        if (state === 'IDLE' || state === 'COMPLETED' || state === 'ABORTED') {
+            ui.setButtonsIdle();
+            ui.updateStatus(state, false);
+        } else if (state === 'INITIALIZING' || state === 'RUNNING') {
+            ui.setButtonsRunning();
+            ui.updateStatus(state, true);
+        } else if (state === 'STOPPING') {
+            ui.setButtonsIdle(); // Or disabled
+            ui.updateStatus('STOPPING...', true);
+        }
+    });
+
+    engine.on('targetStarted', (target) => {
+        ui.updateStatus("RUNNING", true, target);
+    });
+
+    engine.on('siqsActivated', (targetCount) => {
+        ui.showSIQSPanel(targetCount);
+    });
+
+    engine.on('siqsDeactivated', () => {
+        ui.hideSIQSPanel();
+    });
+
+    engine.on('coreUIResetRequest', () => {
+        ui.resetCoreUI(engine.maxWorkers);
+    });
+
     engine.on('updateSIQSProgress', (r, t, p, s) => ui.updateSIQSProgress(r, t, p, s));
-    engine.on('resetCoreUI', (c) => ui.resetCoreUI(c));
     engine.on('clearLogs', () => ui.clearLogs());
     engine.on('resetTimer', () => ui.resetTimer());
     engine.on('updateTimer', (d) => ui.updateTimer(d));

@@ -26,27 +26,29 @@ async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId) {
     let sieveLimit = M * 2;
     let worker = new wasm_bindgen.SiqsWorker(nBytes, fbPrimes, fbLogs, fbRBytes, sieveLimit, ctx.workerId);
 
-    let polys_searched = 0;
+    try {
+        let polys_searched = 0;
 
-    while (!ctx.shouldStop && ctx.currentTaskId === expectedTaskId) {
-        let res = worker.step(100);
-        polys_searched += res.polysSearched;
+        while (!ctx.shouldStop && ctx.currentTaskId === expectedTaskId) {
+            let res = worker.step(100);
+            polys_searched += res.polysSearched;
 
-        for (let i = 0; i < res.relations.length; i++) {
-            let rel = res.relations[i];
-            postMessage({
-                type: "RELATION_FOUND",
-                target: target_N,
-                rel: rel,
-                polyCount: polys_searched
-            });
+            for (let i = 0; i < res.relations.length; i++) {
+                let rel = res.relations[i];
+                postMessage({
+                    type: MSG_TYPE_RELATION_FOUND,
+                    target: target_N,
+                    rel: rel,
+                    polyCount: polys_searched
+                });
+            }
+
+            ctx.sendPhase("SIQS Sieving", "Polys: " + polys_searched);
+            if (await ctx.checkYieldAndStop(expectedTaskId)) {
+                break;
+            }
         }
-
-        ctx.sendPhase("SIQS Sieving", "Polys: " + polys_searched);
-        if (await ctx.checkYieldAndStop(expectedTaskId)) {
-            break;
-        }
+    } finally {
+        worker.free();
     }
-    
-    worker.free();
 }
