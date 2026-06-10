@@ -271,9 +271,8 @@ pub(crate) fn ext_gcd_inverse_internal(a: Int, m: Int) -> Option<Int> {
 
     while newr != Int::from(0) {
         let quotient = r / newr;
-        let mut temp_t = t;
-        let mut temp_r = r;
 
+        let temp_t = t;
         let q_newt_double = DoubleInt::from(quotient) * DoubleInt::from(newt);
         let q_newt_mod = q_newt_double % DoubleInt::from(m);
         let q_newt = Int::from_limbs(q_newt_mod.as_limbs()[..4].try_into().unwrap());
@@ -285,16 +284,9 @@ pub(crate) fn ext_gcd_inverse_internal(a: Int, m: Int) -> Option<Int> {
             newt = m - (q_newt - temp_t);
         }
 
+        let temp_r = r;
         r = newr;
-        let q_newr_double = DoubleInt::from(quotient) * DoubleInt::from(newr);
-        let q_newr_mod = q_newr_double % DoubleInt::from(m);
-        let q_newr = Int::from_limbs(q_newr_mod.as_limbs()[..4].try_into().unwrap());
-        
-        if temp_r >= q_newr {
-            newr = temp_r - q_newr;
-        } else {
-            newr = m - (q_newr - temp_r);
-        }
+        newr = temp_r % newr;
     }
 
     if r > Int::from(1) {

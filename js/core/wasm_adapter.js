@@ -29,17 +29,39 @@ const WasmAdapter = {
     createSiqsReducer(nBig, knBig, fbArr) {
         let n_bytes = bigIntToBytesLE(nBig);
         let kn_bytes = bigIntToBytesLE(knBig);
-        return new wasm_bindgen.SiqsReducer(n_bytes, kn_bytes, fbArr);
+        let wasmInstance = new wasm_bindgen.SiqsReducer(n_bytes, kn_bytes, fbArr);
+        return new SafeWasmWrapper(wasmInstance);
     },
-    addSiqsRelation(reducer, sign, xBig, bBig, aBig, factors) {
+    addSiqsRelation(reducerWrapper, sign, xBig, bBig, aBig, factors) {
+        if (!reducerWrapper || reducerWrapper.isFreed) return;
         let xBytes = bigIntToBytesLE(xBig);
         let bBytes = bigIntToBytesLE(bBig);
         let aBytes = aBig ? bigIntToBytesLE(aBig) : new Uint8Array(0);
         let factorsArr = new Uint32Array(factors);
-        reducer.add_relation(sign, xBytes, bBytes, aBytes, factorsArr);
+        reducerWrapper.instance.add_relation(sign, xBytes, bBytes, aBytes, factorsArr);
     },
-    siqsReduceMatrix(reducer) {
-        let factorBytes = reducer.reduce_matrix();
+    siqsReduceMatrix(reducerWrapper) {
+        if (!reducerWrapper || reducerWrapper.isFreed) return null;
+        let factorBytes = reducerWrapper.instance.reduce_matrix();
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
+    }
+};
+
+class SafeWasmWrapper {
+    constructor(instance) {
+        this.instance = instance;
+        this.isFreed = false;
+    }
+
+    free() {
+        if (!this.isFreed && this.instance) {
+            try {
+                this.instance.free();
+            } catch (e) {
+                console.warn("Error freeing WASM instance:", e);
+            }
+            this.isFreed = true;
+            this.instance = null;
+        }
     }
 };

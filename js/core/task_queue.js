@@ -21,12 +21,9 @@ class TaskQueue extends EventEmitter {
     }
 
     addFactors(f1, f2) {
-        if (f1 === this.activeTarget) {
-            this.factors.push(f1);
-        } else {
-            this.queue.push(f1);
-            this.queue.push(f2);
-        }
+        if (!f1 || !f2) return;
+        if (f1 !== 1n && f1 !== this.activeTarget) this.queue.push(f1);
+        if (f2 !== 1n && f2 !== this.activeTarget) this.queue.push(f2);
         this.emitChange();
     }
 

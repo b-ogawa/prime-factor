@@ -30,23 +30,28 @@ async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId) {
         let polys_searched = 0;
 
         while (!ctx.shouldStop && ctx.currentTaskId === expectedTaskId) {
-            let res = worker.step(100);
-            polys_searched += res.polysSearched;
+            let yieldTime = performance.now() + 50;
 
-            for (let i = 0; i < res.relations.length; i++) {
-                let rel = res.relations[i];
-                postMessage({
-                    type: MSG_TYPE_RELATION_FOUND,
-                    target: target_N,
-                    rel: rel,
-                    polyCount: polys_searched
-                });
+            while (performance.now() < yieldTime && !ctx.shouldStop && ctx.currentTaskId === expectedTaskId) {
+                let res = worker.step(10);
+                polys_searched += res.polysSearched;
+
+                for (let i = 0; i < res.relations.length; i++) {
+                    let rel = res.relations[i];
+                    postMessage({
+                        type: MSG_TYPE_RELATION_FOUND,
+                        target: target_N,
+                        rel: rel,
+                        polyCount: polys_searched
+                    });
+                }
             }
 
             ctx.sendPhase("SIQS Sieving", "Polys: " + polys_searched);
             if (await ctx.checkYieldAndStop(expectedTaskId)) {
                 break;
             }
+            await new Promise(r => setTimeout(r, 0)); // yield control to JS event loop
         }
     } finally {
         worker.free();

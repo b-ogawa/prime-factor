@@ -544,6 +544,12 @@ impl SiqsReducer {
 
             let mut y_val = Int::from(1);
             let mut success = true;
+
+            // Check sign exponent (index 0)
+            if exponent_sum[0] % 2 != 0 {
+                success = false;
+            }
+
             for i in 1..=self.fb.len() {
                 let count = exponent_sum[i];
                 if count % 2 != 0 {

@@ -88,6 +88,59 @@ impl SiqsWorker {
     }
 }
 
+#[derive(PartialEq, Eq)]
+pub enum Sign {
+    Positive,
+    Negative,
+}
+
+pub(crate) fn evaluate_polynomial(a: Int, b: Int, c: Int, c_is_neg: bool, x: Int, x_is_neg: bool) -> (Int, Sign) {
+    let ax2_double = DoubleInt::from(a) * DoubleInt::from(x) * DoubleInt::from(x);
+    let bx2_double = DoubleInt::from(Int::from(2)) * DoubleInt::from(b) * DoubleInt::from(x);
+    let c_double = DoubleInt::from(c);
+
+    let mut sum = ax2_double;
+    let mut val_sign = Sign::Positive;
+
+    if x_is_neg {
+        if sum >= bx2_double {
+            sum = sum - bx2_double;
+        } else {
+            sum = bx2_double - sum;
+            val_sign = Sign::Negative;
+        }
+    } else {
+        sum = sum + bx2_double;
+    }
+
+    if c_is_neg {
+        if val_sign == Sign::Positive {
+            if sum >= c_double {
+                sum = sum - c_double;
+            } else {
+                sum = c_double - sum;
+                val_sign = Sign::Negative;
+            }
+        } else {
+            sum = sum + c_double; // both negative, sum increases, sign stays negative
+        }
+    } else {
+        if val_sign == Sign::Positive {
+            sum = sum + c_double;
+        } else {
+            if sum >= c_double {
+                sum = sum - c_double; // sign stays negative
+            } else {
+                sum = c_double - sum;
+                val_sign = Sign::Positive;
+            }
+        }
+    }
+
+    let result = Int::from_limbs(sum.as_limbs()[..4].try_into().unwrap());
+    (result, val_sign)
+}
+
 // Sieve core logic
 #[wasm_bindgen]
 impl SiqsWorker {
@@ -270,57 +323,11 @@ impl SiqsWorker {
                         };
                         let x_is_neg = i < self.m;
 
-                        let ax = a_val * x;
-                        let ax2 = ax * x;
-                        let bx2 = Int::from(2) * b_val * x;
-                        
-                        // val = ax2 +- bx2 +- C
-                        let mut val = ax2;
-                        if x_is_neg {
-                            val = if val >= bx2 { val - bx2 } else { bx2 - val }; // Might need signed math here.
-                        } else {
-                            val = val + bx2;
-                        }
-                        
-                        // We will do a simpler approach: Just do signed evaluation
-                        // A*x^2 + 2Bx + C
-                        // x can be negative
-                        let mut val_sign = 1i32;
-                        let mut temp = Int::from(0);
-                        
                         let x_isize = (i as isize) - (self.m as isize);
                         
-                        // DoubleInt for safety
-                        let ax2_double = DoubleInt::from(a_val) * DoubleInt::from(x) * DoubleInt::from(x);
-                        let bx2_double = DoubleInt::from(Int::from(2)) * DoubleInt::from(b_val) * DoubleInt::from(x);
-                        let c_double = DoubleInt::from(c_val);
-                        
-                        let mut sum = ax2_double;
-                        if x_is_neg {
-                            if sum >= bx2_double { sum = sum - bx2_double; } 
-                            else { sum = bx2_double - sum; val_sign = -1; }
-                        } else {
-                            sum = sum + bx2_double;
-                        }
+                        let (mut temp, val_sign_enum) = evaluate_polynomial(a_val, b_val, c_val, c_is_neg, x, x_is_neg);
+                        let val_sign = if val_sign_enum == Sign::Positive { 1i32 } else { -1i32 };
 
-                        if c_is_neg {
-                            if val_sign == 1 {
-                                if sum >= c_double { sum = sum - c_double; }
-                                else { sum = c_double - sum; val_sign = -1; }
-                            } else {
-                                sum = sum + c_double; // both negative
-                            }
-                        } else {
-                            if val_sign == 1 {
-                                sum = sum + c_double;
-                            } else {
-                                if sum >= c_double { sum = sum - c_double; val_sign = -1; }
-                                else { sum = c_double - sum; val_sign = 1; }
-                            }
-                        }
-
-                        temp = Int::from_limbs(sum.as_limbs()[..4].try_into().unwrap());
-                        
                         let mut factors = Vec::new();
                         for j in 0..fb_len {
                             let p = Int::from(self.fb[j]);

@@ -145,6 +145,17 @@ class SIQSCoordinator extends EventEmitter {
                     
                     // We recursively process this synthesized relation
                     this.handleRelation({ target: data.target, rel: combinedRel, polyCount: data.polyCount });
+                } else {
+                    // This means gcd(L, kNBig) > 1, so we found a factor!
+                    let g = gcd(L, BigInt(this.activeTarget));
+                    if (g > 1n && g < BigInt(this.activeTarget)) {
+                        let f1 = g;
+                        let f2 = BigInt(this.activeTarget) / g;
+                        this.emit('log', `[SIQS SUCCESS!] Found factors via Large Prime collision gcd: ${f1.toString()} & ${f2.toString()}`, "success");
+                        this.active = false;
+                        this.emit('siqsSuccess', f1, f2);
+                        return;
+                    }
                 }
             } else {
                 this.partialRelations.set(lp, data.rel);
@@ -191,11 +202,7 @@ class SIQSCoordinator extends EventEmitter {
     stop() {
         this.active = false;
         if (this.wasmReducer) {
-            try {
-                this.wasmReducer.free();
-            } catch (e) {
-                console.warn("WASM Reducer free error:", e);
-            }
+            this.wasmReducer.free();
             this.wasmReducer = null;
         }
     }
@@ -225,7 +232,10 @@ class SIQSCoordinator extends EventEmitter {
             this.emit('siqsFallback');
         } finally {
             // Free WASM memory
-            this.wasmReducer.free();
+            if (this.wasmReducer) {
+                this.wasmReducer.free();
+                this.wasmReducer = null;
+            }
         }
     }
 
