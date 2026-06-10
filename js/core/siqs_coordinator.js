@@ -1,5 +1,5 @@
 import { EventEmitter } from './event_emitter.js';
-import { generateFactorBase, extGCDInverse, gcd } from './math.js';
+import { generateFactorBase, extGCDInverse, gcd, jacobi } from './math.js';
 import { WasmAdapter } from './wasm_adapter.js';
 import { MSG_CMD_SIQS_FACTORIZE } from './messages.js';
 
@@ -112,7 +112,7 @@ export class SIQSCoordinator extends EventEmitter {
 
     handleRelation(data) {
         if (!this.active || this.currentSessionId !== data.sessionId) return;
-        
+
         if (!this.partialRelations) this.partialRelations = new Map();
 
         // Check if it's a partial relation
@@ -123,24 +123,24 @@ export class SIQSCoordinator extends EventEmitter {
             if (this.partialRelations.has(key)) {
                 let r1 = this.partialRelations.get(key);
                 let r2 = data.rel;
-                
+
                 // Combine r1 and r2 into a full relation
                 let kNBig = BigInt(this.activeTarget) * this.k;
                 let L = BigInt(lp);
-                
+
                 let u1 = (BigInt(r1.A) * BigInt(r1.x) + BigInt(r1.B)) % kNBig;
                 if (u1 < 0n) u1 += kNBig;
                 let u2 = (BigInt(r2.A) * BigInt(r2.x) + BigInt(r2.B)) % kNBig;
                 if (u2 < 0n) u2 += kNBig;
-                
+
                 let invLRes = extGCDInverse(L, kNBig);
                 if (invLRes.success) {
                     let u_new = (u1 * u2) % kNBig;
                     u_new = (u_new * invLRes.value) % kNBig;
-                    
+
                     let new_factors = [...r1.factors, ...r2.factors];
                     let new_sign = r1.sign * r2.sign;
-                    
+
                     // Add this synthesized relation
                     let combinedRel = {
                         x: u_new.toString(),
@@ -149,10 +149,10 @@ export class SIQSCoordinator extends EventEmitter {
                         sign: new_sign,
                         factors: new_factors
                     };
-                    
+
                     // Remove the partial
                     this.partialRelations.delete(key);
-                    
+
                     // We recursively process this synthesized relation
                     this.handleRelation({ target: data.target, sessionId: data.sessionId, rel: combinedRel, polyCount: data.polyCount });
                 } else {
