@@ -154,10 +154,10 @@ pub(crate) fn evaluate_polynomial(a: Int, b: Int, c: Int, c_is_neg: bool, x: Int
 // Sieve core logic
 #[wasm_bindgen]
 impl SiqsWorker {
-    pub fn step(&mut self, batch_size: usize) -> JsValue {
-        use js_sys::{Array, Object, Reflect};
-        let mut relations = Array::new();
-        let mut polys_searched = 0;
+    pub fn step(&mut self, batch_size: usize) -> Vec<u8> {
+        let mut relations_data = Vec::new();
+        let mut relations_count = 0u32;
+        let mut polys_searched = 0u64;
 
         let fb_len = self.fb.len();
         let s = self.s_val;
@@ -434,20 +434,18 @@ impl SiqsWorker {
                             for k in 0..s {
                                 factors.push(q_indices[k] as u32);
                             }
-                            // Form relation
-                            let rel_obj = Object::new();
-                            Reflect::set(&rel_obj, &JsValue::from_str("x"), &JsValue::from_str(&x_i64.to_string())).unwrap();
-                            Reflect::set(&rel_obj, &JsValue::from_str("A"), &JsValue::from_str(&a_val.to_string())).unwrap();
-                            Reflect::set(&rel_obj, &JsValue::from_str("B"), &JsValue::from_str(&b_val.to_string())).unwrap();
-                            Reflect::set(&rel_obj, &JsValue::from_str("sign"), &JsValue::from_f64(val_sign as f64)).unwrap();
+                            let flags = if val_sign == 1 { 2u8 } else { 0u8 };
+                            relations_data.push(flags);
+                            relations_data.extend_from_slice(&x_i64.to_le_bytes());
+                            relations_data.extend_from_slice(&a_val.to_le_bytes::<32>());
+                            relations_data.extend_from_slice(&b_val.to_le_bytes::<32>());
                             
-                            let js_factors = Array::new();
-                            for f in factors {
-                                js_factors.push(&JsValue::from_f64(f as f64));
+                            let factors_len = factors.len() as u16;
+                            relations_data.extend_from_slice(&factors_len.to_le_bytes());
+                            for &f in &factors {
+                                relations_data.extend_from_slice(&f.to_le_bytes());
                             }
-                            Reflect::set(&rel_obj, &JsValue::from_str("factors"), &js_factors).unwrap();
-                            
-                            relations.push(&rel_obj);
+                            relations_count += 1;
                         } else {
                             // Partial relation
                             let max_p = Int::from(self.fb[fb_len - 1]);
@@ -455,20 +453,19 @@ impl SiqsWorker {
                                 for k in 0..s {
                                     factors.push(q_indices[k] as u32);
                                 }
-                                let rel_obj = Object::new();
-                                Reflect::set(&rel_obj, &JsValue::from_str("x"), &JsValue::from_str(&x_i64.to_string())).unwrap();
-                                Reflect::set(&rel_obj, &JsValue::from_str("A"), &JsValue::from_str(&a_val.to_string())).unwrap();
-                                Reflect::set(&rel_obj, &JsValue::from_str("B"), &JsValue::from_str(&b_val.to_string())).unwrap();
-                                Reflect::set(&rel_obj, &JsValue::from_str("sign"), &JsValue::from_f64(val_sign as f64)).unwrap();
-                                Reflect::set(&rel_obj, &JsValue::from_str("largePrime"), &JsValue::from_str(&temp.to_string())).unwrap();
+                                let flags = if val_sign == 1 { 3u8 } else { 1u8 };
+                                relations_data.push(flags);
+                                relations_data.extend_from_slice(&x_i64.to_le_bytes());
+                                relations_data.extend_from_slice(&a_val.to_le_bytes::<32>());
+                                relations_data.extend_from_slice(&b_val.to_le_bytes::<32>());
+                                relations_data.extend_from_slice(&temp.to_le_bytes::<32>());
                                 
-                                let js_factors = Array::new();
-                                for f in factors {
-                                    js_factors.push(&JsValue::from_f64(f as f64));
+                                let factors_len = factors.len() as u16;
+                                relations_data.extend_from_slice(&factors_len.to_le_bytes());
+                                for &f in &factors {
+                                    relations_data.extend_from_slice(&f.to_le_bytes());
                                 }
-                                Reflect::set(&rel_obj, &JsValue::from_str("factors"), &js_factors).unwrap();
-                                
-                                relations.push(&rel_obj);
+                                relations_count += 1;
                             }
                         }
                     }
@@ -476,9 +473,10 @@ impl SiqsWorker {
             }
         }
         
-        let res = Object::new();
-        Reflect::set(&res, &JsValue::from_str("polysSearched"), &JsValue::from_f64(polys_searched as f64)).unwrap();
-        Reflect::set(&res, &JsValue::from_str("relations"), &relations).unwrap();
-        JsValue::from(res)
+        let mut output = Vec::with_capacity(12 + relations_data.len());
+        output.extend_from_slice(&polys_searched.to_le_bytes());
+        output.extend_from_slice(&relations_count.to_le_bytes());
+        output.extend_from_slice(&relations_data);
+        output
     }
 }

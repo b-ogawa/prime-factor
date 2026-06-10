@@ -672,3 +672,16 @@ impl SiqsReducer {
     }
 }
 pub mod siqs;
+
+#[wasm_bindgen]
+pub fn run_micro_benchmark() -> u32 {
+    let n = Int::from(340282366920938463463374607431768211407u128);
+    let mont = MontgomerySpace::new(n);
+    let mut x = mont.transform(Int::from(12345));
+    let mut y = mont.transform(Int::from(67890));
+    for _ in 0..500000 {
+        x = mont.mul(x, y);
+        y = mont.mul(y, x);
+    }
+    x.as_limbs()[0] as u32
+}
