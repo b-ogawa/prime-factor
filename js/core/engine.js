@@ -19,7 +19,7 @@ class FactorizationEngine extends EventEmitter {
         this.startTime = null;
         this.timerInterval = null;
 
-        this.wasmReadyCount = 0;
+        this.initCompleteCount = 0;
         this.startPending = false;
     }
 
@@ -82,8 +82,8 @@ class FactorizationEngine extends EventEmitter {
         this.emit('updateStatus', "INITIALIZING", true);
         this.emit('log', `[SYSTEM START] Factorization target: ${targetBig.toString()}`, "sys");
 
-        if (this.wasmReadyCount < this.maxWorkers) {
-            this.emit('log', "[SYSTEM WAITING] Waiting for WASM core initialization...", "sys");
+        if (this.initCompleteCount < this.maxWorkers) {
+            this.emit('log', "[SYSTEM WAITING] Waiting for core initialization...", "sys");
             this.startPending = true;
         } else {
             this.emit('updateStatus', "RUNNING", true);
@@ -127,9 +127,9 @@ class FactorizationEngine extends EventEmitter {
 
     handleWorkerMessage(e) {
         const data = e.data;
-        if (data.type === "WASM_READY") {
-            this.wasmReadyCount++;
-            if (this.wasmReadyCount === this.maxWorkers && this.startPending) {
+        if (data.type === "INIT_COMPLETE") {
+            this.initCompleteCount++;
+            if (this.initCompleteCount === this.maxWorkers && this.startPending) {
                 this.startPending = false;
                 this.emit('updateStatus', "RUNNING", true);
                 this.startTimer();
@@ -137,6 +137,8 @@ class FactorizationEngine extends EventEmitter {
             }
             return;
         }
+
+        if (data.type === "WASM_READY") return; // Keep for backward compatibility or ignore
 
         if (!this.isRunning) return;
 
@@ -198,6 +200,25 @@ class FactorizationEngine extends EventEmitter {
     stopWorkersAndResume() {
         this.stopWorkers();
         setTimeout(() => this.processQueue(), 10);
+    }
+
+    handleCoordinatorResult(f1, f2) {
+        this.queue.push(f1);
+        this.queue.push(f2);
+        this.activeTarget = null;
+        setTimeout(() => this.processQueue(), 10);
+    }
+
+    handleCoordinatorFallback() {
+        this.emit('hideSIQSPanel');
+        this.emit('log', `[FALLBACK] Dispatching ${this.activeTarget.toString()} to ECM Suite...`, 'sys');
+
+        this.activeWorkersCount = this.maxWorkers;
+        this.workers.forEach(w => w.postMessage({
+            cmd: 'FACTORIZE',
+            target: this.activeTarget,
+            params: this.currentParams
+        }));
     }
 
     processQueue() {

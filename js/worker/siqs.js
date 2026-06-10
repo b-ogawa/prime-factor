@@ -1,4 +1,4 @@
-async function runParallelSIQS(target_N, kN, params, ctx) {
+async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId) {
     let fbSize = params.fbSize;
     let M = params.M;
     let maxWorkers = params.maxWorkers || 8;
@@ -28,7 +28,7 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
 
     let polys_searched = 0;
 
-    while (!ctx.shouldStop) {
+    while (!ctx.shouldStop && ctx.currentTaskId === expectedTaskId) {
         let res = worker.step(100);
         polys_searched += res.polysSearched;
 
@@ -43,7 +43,9 @@ async function runParallelSIQS(target_N, kN, params, ctx) {
         }
 
         ctx.sendPhase("SIQS Sieving", "Polys: " + polys_searched);
-        await ctx.yieldIfNeeded();
+        if (await ctx.checkYieldAndStop(expectedTaskId)) {
+            break;
+        }
     }
     
     worker.free();

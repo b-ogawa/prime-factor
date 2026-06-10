@@ -406,6 +406,7 @@ pub struct SiqsRelation {
 #[wasm_bindgen]
 pub struct SiqsReducer {
     n: Int,
+    kn: Int,
     fb: Vec<u32>,
     relations: Vec<SiqsRelation>,
 }
@@ -413,10 +414,12 @@ pub struct SiqsReducer {
 #[wasm_bindgen]
 impl SiqsReducer {
     #[wasm_bindgen(constructor)]
-    pub fn new(n_bytes: &[u8], fb_primes: &[u32]) -> Self {
+    pub fn new(n_bytes: &[u8], kn_bytes: &[u8], fb_primes: &[u32]) -> Self {
         let n = int_from_le_slice(n_bytes);
+        let kn = int_from_le_slice(kn_bytes);
         SiqsReducer {
             n,
+            kn,
             fb: fb_primes.to_vec(),
             relations: Vec::new(),
         }
@@ -523,12 +526,12 @@ impl SiqsReducer {
                 };
 
                 let term_prod = DoubleInt::from(rel_a).wrapping_mul(DoubleInt::from(rel_x));
-                let term_mod = term_prod % DoubleInt::from(self.n);
-                let term_add = (term_mod + DoubleInt::from(rel_b)) % DoubleInt::from(self.n);
+                let term_mod = term_prod % DoubleInt::from(self.kn);
+                let term_add = (term_mod + DoubleInt::from(rel_b)) % DoubleInt::from(self.kn);
                 let term = Int::from_limbs(term_add.as_limbs()[..4].try_into().unwrap());
 
                 let x_prod = DoubleInt::from(x_val).wrapping_mul(DoubleInt::from(term));
-                let x_mod = x_prod % DoubleInt::from(self.n);
+                let x_mod = x_prod % DoubleInt::from(self.kn);
                 x_val = Int::from_limbs(x_mod.as_limbs()[..4].try_into().unwrap());
 
                 if rel.sign == -1 {
@@ -557,28 +560,29 @@ impl SiqsReducer {
                     while exp > 0 {
                         if exp & 1 == 1 {
                             let res_prod = DoubleInt::from(res).wrapping_mul(DoubleInt::from(base_pow));
-                            res = Int::from_limbs((res_prod % DoubleInt::from(self.n)).as_limbs()[..4].try_into().unwrap());
+                            res = Int::from_limbs((res_prod % DoubleInt::from(self.kn)).as_limbs()[..4].try_into().unwrap());
                         }
                         let base_prod = DoubleInt::from(base_pow).wrapping_mul(DoubleInt::from(base_pow));
-                        base_pow = Int::from_limbs((base_prod % DoubleInt::from(self.n)).as_limbs()[..4].try_into().unwrap());
+                        base_pow = Int::from_limbs((base_prod % DoubleInt::from(self.kn)).as_limbs()[..4].try_into().unwrap());
                         exp >>= 1;
                     }
 
                     let y_prod = DoubleInt::from(y_val).wrapping_mul(DoubleInt::from(res));
-                    y_val = Int::from_limbs((y_prod % DoubleInt::from(self.n)).as_limbs()[..4].try_into().unwrap());
+                    y_val = Int::from_limbs((y_prod % DoubleInt::from(self.kn)).as_limbs()[..4].try_into().unwrap());
                 }
             }
             if !success {
                 continue;
             }
 
-            let diff = if x_val >= y_val { x_val - y_val } else { x_val + self.n - y_val };
+            let diff = if x_val >= y_val { x_val - y_val } else { x_val + self.kn - y_val };
+            // Compute GCD against original N to avoid returning trivial k
             let mut g = gcd(diff, self.n);
             if g > Int::from(1) && g < self.n {
                 return Some(g.to_le_bytes::<32>().to_vec());
             }
 
-            let sum_double = (DoubleInt::from(x_val) + DoubleInt::from(y_val)) % DoubleInt::from(self.n);
+            let sum_double = (DoubleInt::from(x_val) + DoubleInt::from(y_val)) % DoubleInt::from(self.kn);
             let sum = Int::from_limbs(sum_double.as_limbs()[..4].try_into().unwrap());
             g = gcd(sum, self.n);
             if g > Int::from(1) && g < self.n {

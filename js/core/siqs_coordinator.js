@@ -8,6 +8,7 @@ class SIQSCoordinator {
         this.startTime = null;
         this.targetCount = 0;
         this.k = 1n;
+        this.isReducing = false;
     }
 
     // SIQS Parameters Table
@@ -58,6 +59,7 @@ class SIQSCoordinator {
         this.relations = [];
         this.relationSignatures = new Set();
         this.startTime = Date.now();
+        this.isReducing = false;
 
         let k = this.chooseMultiplier(N);
         let kN = N * k;
@@ -77,9 +79,10 @@ class SIQSCoordinator {
         this.FB = FB;
         this.targetCount = FB.length + 15;
 
-        let n_bytes = bigIntToBytesLE(kN);
+        let n_bytes = bigIntToBytesLE(N);
+        let kn_bytes = bigIntToBytesLE(kN);
         let fb_arr = new Uint32Array(FB.map(f => f.p));
-        this.wasmReducer = new wasm_bindgen.SiqsReducer(n_bytes, fb_arr);
+        this.wasmReducer = new wasm_bindgen.SiqsReducer(n_bytes, kn_bytes, fb_arr);
 
         // Dispatch tasks
         this.engine.workers.forEach(w => {
@@ -174,7 +177,8 @@ class SIQSCoordinator {
             let speed = Math.round((this.relations.length / Math.max(1, Date.now() - this.startTime)) * 1000);
             this.engine.emit('updateSIQSProgress', this.relations.length, this.targetCount, data.polyCount, speed);
 
-            if (this.relations.length >= this.targetCount) {
+            if (this.relations.length >= this.targetCount && !this.isReducing) {
+                this.isReducing = true;
                 // Relations collected
                 this.engine.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
                 this.engine.stopWorkers();
@@ -202,27 +206,15 @@ class SIQSCoordinator {
                 let f2 = this.engine.activeTarget / f1;
                 this.engine.emit('log', `[SIQS SUCCESS!] Found factors: ${f1.toString()} & ${f2.toString()}`, "success");
 
-                this.engine.queue.push(f1);
-                this.engine.queue.push(f2);
-
                 this.active = false;
-                this.engine.activeTarget = null;
-                setTimeout(() => this.engine.processQueue(), 10);
+                this.engine.handleCoordinatorResult(f1, f2);
                 return;
             }
         }
         this.engine.emit('log', "[SIQS FAILURE] Dependencies exhausted without non-trivial factors. Falling back to ECM.", "error");
         // Fallback to ECM
         this.active = false;
-        this.engine.emit('hideSIQSPanel');
-        this.engine.emit('log', `[FALLBACK] Dispatching ${this.engine.activeTarget.toString()} to ECM Suite...`, 'sys');
-
-        this.engine.activeWorkersCount = this.engine.maxWorkers;
-        this.engine.workers.forEach(w => w.postMessage({
-            cmd: 'FACTORIZE',
-            target: this.engine.activeTarget,
-            params: this.engine.currentParams
-        }));
+        this.engine.handleCoordinatorFallback();
     }
 
 

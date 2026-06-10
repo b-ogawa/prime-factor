@@ -75,14 +75,17 @@ let wasm_bindgen = (function(exports) {
         }
         /**
          * @param {Uint8Array} n_bytes
+         * @param {Uint8Array} kn_bytes
          * @param {Uint32Array} fb_primes
          */
-        constructor(n_bytes, fb_primes) {
+        constructor(n_bytes, kn_bytes, fb_primes) {
             const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
             const len0 = WASM_VECTOR_LEN;
-            const ptr1 = passArray32ToWasm0(fb_primes, wasm.__wbindgen_malloc);
+            const ptr1 = passArray8ToWasm0(kn_bytes, wasm.__wbindgen_malloc);
             const len1 = WASM_VECTOR_LEN;
-            const ret = wasm.siqsreducer_new(ptr0, len0, ptr1, len1);
+            const ptr2 = passArray32ToWasm0(fb_primes, wasm.__wbindgen_malloc);
+            const len2 = WASM_VECTOR_LEN;
+            const ret = wasm.siqsreducer_new(ptr0, len0, ptr1, len1, ptr2, len2);
             this.__wbg_ptr = ret;
             SiqsReducerFinalization.register(this, this.__wbg_ptr, this);
             return this;
