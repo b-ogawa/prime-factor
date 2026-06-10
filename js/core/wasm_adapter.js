@@ -1,6 +1,6 @@
-import { is_prime_bpsw_bytes, pollard_p1_bytes, pollard_brent_bytes, EcmRunner, SiqsReducer } from '../wasm/wasm_engine.js';
+import { is_prime_bpsw_bytes, pollard_p1_bytes, pollard_brent_bytes, EcmRunner, SiqsReducer, run_micro_benchmark } from '../wasm/wasm_engine.js';
 import { bigIntToBytesLE, bytesToBigIntLE } from './math_utils.js';
-
+ 
 export const WasmAdapter = {
     isPrime(bigIntNum) {
         let bytes = bigIntToBytesLE(bigIntNum);
@@ -45,14 +45,23 @@ export const WasmAdapter = {
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
     },
     withReducer(nBig, knBig, fbArr, callback) {
-        const reducer = this.createSiqsReducer(nBig, knBig, fbArr);
-        try {
-            return callback(reducer);
-        } finally {
-            reducer.free();
-        }
+        using reducer = this.createSiqsReducer(nBig, knBig, fbArr);
+        return callback(reducer);
+    },
+    runMicroBenchmark() {
+        return run_micro_benchmark();
     }
 };
+
+// Polyfill Symbol.dispose if not present
+if (typeof Symbol !== 'undefined' && !Symbol.dispose) {
+    Object.defineProperty(Symbol, 'dispose', {
+        value: Symbol('Symbol.dispose'),
+        configurable: false,
+        enumerable: false,
+        writable: false
+    });
+}
 
 export class SafeWasmWrapper {
     constructor(instance) {
@@ -71,4 +80,18 @@ export class SafeWasmWrapper {
             this.instance = null;
         }
     }
+
+    [Symbol.dispose]() {
+        this.free();
+    }
 }
+
+// Augment WASM class prototypes to support JS `using` syntax directly
+[EcmRunner, SiqsReducer].forEach(cls => {
+    if (cls && cls.prototype && !cls.prototype[Symbol.dispose]) {
+        cls.prototype[Symbol.dispose] = function() {
+            this.free();
+        };
+    }
+});
+

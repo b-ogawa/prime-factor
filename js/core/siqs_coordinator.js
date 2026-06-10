@@ -2,6 +2,7 @@ import { EventEmitter } from './event_emitter.js';
 import { generateFactorBase, extGCDInverse, gcd, jacobi } from './math.js';
 import { WasmAdapter } from './wasm_adapter.js';
 import { MSG_CMD_SIQS_FACTORIZE } from './messages.js';
+import { store } from './store.js';
 
 export class SIQSCoordinator extends EventEmitter {
     constructor() {
@@ -16,23 +17,33 @@ export class SIQSCoordinator extends EventEmitter {
         this.targetCount = 0;
         this.k = 1n;
         this.isReducing = false;
+        this.tDevice = null;
+        this.lastProgressEmitTime = 0;
+        this.progressThrottleMs = 100;
     }
 
-    // SIQS Parameters Table
+    // Continuous parameter calculation via L-notation and profiling
     getSIQSParams(digits) {
-        if (digits < 25) {
-            return { fbSize: 150, M: 6000 };
-        } else if (digits < 30) {
-            return { fbSize: 260, M: 12000 };
-        } else if (digits < 35) {
-            return { fbSize: 450, M: 25000 };
-        } else if (digits < 40) {
-            return { fbSize: 750, M: 50000 };
-        } else if (digits < 45) {
-            return { fbSize: 1200, M: 100000 };
-        } else {
-            return { fbSize: 1800, M: 200000 };
+        if (!this.tDevice) {
+            const profile = store.getState().hardwareProfile;
+            this.tDevice = profile.tDevice || 1.0;
+            this.emit('log', `[PROFILE] Loading device benchmark profile. T_device = ${this.tDevice.toFixed(2)}`, "sys");
         }
+
+        let lnN = digits * Math.log(10);
+        let sqrtLnN = Math.sqrt(lnN * Math.log(lnN));
+
+        let fbSize = Math.round(Math.exp(0.32 * sqrtLnN + 0.2));
+        let baseM = Math.round(Math.exp(0.42 * sqrtLnN + 2.2));
+
+        // Modulate Sieve Interval based on device capability
+        let M = Math.round(baseM * this.tDevice);
+
+        // Safeguards
+        fbSize = Math.max(50, Math.min(20000, fbSize));
+        M = Math.max(1000, Math.min(1000000, M));
+
+        return { fbSize, M };
     }
 
     // Knuth-Schroeppel Multiplier Selection
@@ -74,6 +85,7 @@ export class SIQSCoordinator extends EventEmitter {
         this.startTime = Date.now();
         this.isReducing = false;
         this.partialRelations = new Map();
+        this.lastProgressEmitTime = 0;
 
         let k = this.chooseMultiplier(N);
         let kN = N * k;
@@ -196,9 +208,15 @@ export class SIQSCoordinator extends EventEmitter {
             );
 
             let speed = Math.round((this.relations.length / Math.max(1, Date.now() - this.startTime)) * 1000);
-            this.emit('siqsProgress', this.relations.length, this.targetCount, data.polyCount, speed);
+            
+            let now = Date.now();
+            let isTargetReached = this.relations.length >= this.targetCount;
+            if (isTargetReached || now - this.lastProgressEmitTime >= this.progressThrottleMs) {
+                this.lastProgressEmitTime = now;
+                this.emit('siqsProgress', this.relations.length, this.targetCount, data.polyCount, speed);
+            }
 
-            if (this.relations.length >= this.targetCount && !this.isReducing) {
+            if (isTargetReached && !this.isReducing) {
                 this.isReducing = true;
                 this.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
                 this.emit('siqsStopWorkers');

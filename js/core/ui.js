@@ -1,3 +1,5 @@
+import { store } from './store.js';
+
 export class UIController {
     constructor() {
         this.consoleLogEl = document.getElementById('consoleLog');
@@ -21,6 +23,84 @@ export class UIController {
 
         this.coreCountEl = document.getElementById('coreCount');
         this.coreActivityContainer = document.getElementById('coreActivityContainer');
+
+        this.lastState = null;
+        this.renderRequested = false;
+
+        // Subscribe to store state changes
+        store.on('stateChanged', () => this.requestRender());
+    }
+
+    requestRender() {
+        if (this.renderRequested) return;
+        this.renderRequested = true;
+        requestAnimationFrame(() => {
+            this.renderRequested = false;
+            this.render(store.getState());
+        });
+    }
+
+    render(state) {
+        const { userConfig, hardwareProfile, runtimeState } = state;
+
+        // Init Core UI if core count changes
+        if (!this.lastState || this.lastState.hardwareProfile.coreCount !== hardwareProfile.coreCount) {
+            this.setCoreCount(hardwareProfile.coreCount);
+            this.initCoreUI(hardwareProfile.coreCount);
+        }
+
+        // Engine Status and Action buttons
+        if (!this.lastState || this.lastState.runtimeState.status !== runtimeState.status || 
+            this.lastState.runtimeState.activeTarget !== runtimeState.activeTarget) {
+            
+            const active = ['RUNNING', 'INITIALIZING', 'STOPPING'].includes(runtimeState.status);
+            this.updateStatus(runtimeState.status, active, runtimeState.activeTarget);
+            
+            if (active) {
+                this.setButtonsRunning();
+            } else {
+                this.setButtonsIdle();
+            }
+        }
+
+        // Render factors
+        if (!this.lastState || 
+            this.lastState.runtimeState.factors !== runtimeState.factors || 
+            this.lastState.runtimeState.unresolved !== runtimeState.unresolved) {
+            this.renderFactors(runtimeState.factors, runtimeState.unresolved);
+        }
+
+        // Timer
+        if (runtimeState.elapsedTime !== undefined) {
+            this.updateTimer(runtimeState.elapsedTime);
+        }
+
+        // Cores activity status
+        if (!this.lastState || this.lastState.runtimeState.coreStatus !== runtimeState.coreStatus) {
+            for (let i = 0; i < hardwareProfile.coreCount; i++) {
+                const stat = runtimeState.coreStatus[i] || { phase: 'IDLE', detail: '' };
+                this.updateCoreStatus(i, stat.phase, stat.detail);
+            }
+        }
+
+        // SIQS Progress
+        const siqsActive = runtimeState.status === 'RUNNING' && runtimeState.siqsActive;
+        if (siqsActive) {
+            this.showSIQSPanel(runtimeState.siqsTargetRelations);
+            this.updateSIQSProgress(
+                runtimeState.siqsRelationsCount,
+                runtimeState.siqsTargetRelations,
+                runtimeState.siqsPolyCount,
+                runtimeState.siqsRelSpeed
+            );
+        } else {
+            this.hideSIQSPanel();
+        }
+
+        this.lastState = {
+            hardwareProfile: { ...hardwareProfile },
+            runtimeState: { ...runtimeState }
+        };
     }
 
     setCoreCount(count) {

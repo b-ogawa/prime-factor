@@ -11,7 +11,27 @@ import { bigIntToBytesLE } from '../core/math_utils.js';
 import { WasmAdapter } from '../core/wasm_adapter.js';
 import { ctx } from './context.js';
 import { runParallelSIQS } from './siqs.js';
-import init, { is_prime_bpsw_bytes, sieve_primes_wasm } from '../wasm/wasm_engine.js';
+import init, { is_prime_bpsw_bytes, sieve_primes_wasm, EcmRunner, SiqsWorker } from '../wasm/wasm_engine.js';
+
+// Polyfill Symbol.dispose if not present
+if (typeof Symbol !== 'undefined' && !Symbol.dispose) {
+    Object.defineProperty(Symbol, 'dispose', {
+        value: Symbol('Symbol.dispose'),
+        configurable: false,
+        enumerable: false,
+        writable: false
+    });
+}
+
+// Augment WASM class prototypes to support JS `using` syntax directly
+[EcmRunner, SiqsWorker].forEach(cls => {
+    if (cls && cls.prototype && !cls.prototype[Symbol.dispose]) {
+        cls.prototype[Symbol.dispose] = function() {
+            this.free();
+        };
+    }
+});
+
 
 const PHASE_ECM_WASM = "ECM Phase (WASM)";
 
@@ -172,28 +192,24 @@ async function runEcmStrategy(M, params, ctx) {
     if (params.maxCurves <= 0) return false;
     ctx.sendPhase(PHASE_ECM_WASM, "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
 
-    let ecmRunner = WasmAdapter.createEcmRunner(M, params.b1);
+    using ecmRunner = WasmAdapter.createEcmRunner(M, params.b1);
     let chunk_size = 10;
     let curves_run = 0;
 
-    try {
-        while (curves_run < params.maxCurves) {
-            if (ctx.shouldStop || ctx.currentTaskId !== M) return true;
+    while (curves_run < params.maxCurves) {
+        if (ctx.shouldStop || ctx.currentTaskId !== M) return true;
 
-            let curves_to_run = Math.min(chunk_size, params.maxCurves - curves_run);
-            ctx.sendPhase(PHASE_ECM_WASM, "Curves " + curves_run + " / " + params.maxCurves, true);
+        let curves_to_run = Math.min(chunk_size, params.maxCurves - curves_run);
+        ctx.sendPhase(PHASE_ECM_WASM, "Curves " + curves_run + " / " + params.maxCurves, true);
 
-            let factor = WasmAdapter.ecmRunCurves(ecmRunner, curves_to_run);
-            if (factor) {
-                postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "ECM (WASM)"));
-                return true;
-            }
-
-            curves_run += curves_to_run;
-            if (await ctx.checkYieldAndStop(M)) return true;
+        let factor = WasmAdapter.ecmRunCurves(ecmRunner, curves_to_run);
+        if (factor) {
+            postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "ECM (WASM)"));
+            return true;
         }
-    } finally {
-        ecmRunner.free();
+
+        curves_run += curves_to_run;
+        if (await ctx.checkYieldAndStop(M)) return true;
     }
     return false;
 }

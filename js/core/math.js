@@ -323,3 +323,33 @@ export function generateFactorBase(N, targetSize) {
     }
     return fb;
 }
+
+export function isPerfectPower(n) {
+    if (n <= 3n) return null;
+    let limit = BigInt(n.toString().length) * 4n;
+    for (let b = 2n; b <= limit; b++) {
+        let low = 2n;
+        let high = n;
+        while (low <= high) {
+            let mid = (low + high) / 2n;
+            let val = 1n;
+            let overflow = false;
+            for (let i = 0n; i < b; i++) {
+                val *= mid;
+                if (val > n) {
+                    overflow = true;
+                    break;
+                }
+            }
+            if (val === n) {
+                return { base: mid, exp: Number(b) };
+            }
+            if (overflow) {
+                high = mid - 1n;
+            } else {
+                low = mid + 1n;
+            }
+        }
+    }
+    return null;
+}

@@ -20,7 +20,7 @@ export class SiqsWorker {
     free(): void;
     [Symbol.dispose](): void;
     constructor(kn_bytes: Uint8Array, fb_primes: Uint32Array, fb_logs: Uint8Array, fb_r_bytes: Uint8Array, sieve_limit: number, worker_id: number);
-    step(batch_size: number): any;
+    step(batch_size: number): Uint8Array;
 }
 
 export function is_prime_bpsw_bytes(n_bytes: Uint8Array): boolean;
@@ -28,6 +28,8 @@ export function is_prime_bpsw_bytes(n_bytes: Uint8Array): boolean;
 export function pollard_brent_bytes(n_bytes: Uint8Array, max_iters: number): Uint8Array | undefined;
 
 export function pollard_p1_bytes(n_bytes: Uint8Array, b1: number, primes: Uint32Array): Uint8Array | undefined;
+
+export function run_micro_benchmark(): number;
 
 export function sieve_primes_wasm(max: number): Uint32Array;
 
@@ -37,9 +39,10 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_siqsworker_free: (a: number, b: number) => void;
     readonly siqsworker_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
-    readonly siqsworker_step: (a: number, b: number) => any;
+    readonly siqsworker_step: (a: number, b: number) => [number, number];
     readonly __wbg_siqsreducer_free: (a: number, b: number) => void;
     readonly is_prime_bpsw_bytes: (a: number, b: number) => number;
+    readonly run_micro_benchmark: () => number;
     readonly sieve_primes_wasm: (a: number) => [number, number];
     readonly siqsreducer_add_relation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;
     readonly siqsreducer_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
@@ -49,11 +52,10 @@ export interface InitOutput {
     readonly ecmrunner_run_curves: (a: number, b: number) => [number, number];
     readonly pollard_brent_bytes: (a: number, b: number, c: number) => [number, number];
     readonly pollard_p1_bytes: (a: number, b: number, c: number, d: number, e: number) => [number, number];
-    readonly __wbindgen_malloc: (a: number, b: number) => number;
-    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
+    readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;

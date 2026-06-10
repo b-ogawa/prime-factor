@@ -1,5 +1,5 @@
 import { generateFactorBase } from '../core/math.js';
-import { bigIntToBytesLE } from '../core/math_utils.js';
+import { bigIntToBytesLE, bytesToBigIntLE } from '../core/math_utils.js';
 import { MSG_TYPE_RELATION_FOUND } from '../core/messages.js';
 import { SiqsWorker } from '../wasm/wasm_engine.js';
 
@@ -29,26 +29,67 @@ export async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId,
     }
 
     let sieveLimit = M * 2;
-    let worker = new SiqsWorker(nBytes, fbPrimes, fbLogs, fbRBytes, sieveLimit, ctx.workerId);
+    using worker = new SiqsWorker(nBytes, fbPrimes, fbLogs, fbRBytes, sieveLimit, ctx.workerId);
 
-    try {
-        let polys_searched = 0;
+    let polys_searched = 0;
 
         while (!ctx.shouldStop && ctx.currentTaskId === expectedTaskId) {
             let yieldTime = performance.now() + 50;
 
             while (performance.now() < yieldTime && !ctx.shouldStop && ctx.currentTaskId === expectedTaskId) {
-                let res = worker.step(10);
-                polys_searched += res.polysSearched;
+                let resBytes = worker.step(10);
+                let view = new DataView(resBytes.buffer, resBytes.byteOffset, resBytes.byteLength);
+                let polysSearched = Number(view.getBigUint64(0, true));
+                let relationsCount = view.getUint32(8, true);
+                polys_searched += polysSearched;
 
-                for (let i = 0; i < res.relations.length; i++) {
-                    let rel = res.relations[i];
-                    // Normalize x mod kN to avoid negative number serialization issues (Bug 7)
-                    if (rel.x) {
-                        let xBig = BigInt(rel.x);
-                        xBig = (xBig % kN_Big + kN_Big) % kN_Big;
-                        rel.x = xBig.toString();
+                let offset = 12;
+                for (let rIdx = 0; rIdx < relationsCount; rIdx++) {
+                    let flags = view.getUint8(offset);
+                    offset += 1;
+                    
+                    let is_partial = (flags & 1) === 1;
+                    let sign = (flags & 2) === 2 ? 1 : -1;
+                    
+                    let x_i64 = view.getBigInt64(offset, true);
+                    offset += 8;
+
+                    let aBytes = new Uint8Array(resBytes.buffer, resBytes.byteOffset + offset, 32);
+                    let aVal = bytesToBigIntLE(aBytes);
+                    offset += 32;
+
+                    let bBytes = new Uint8Array(resBytes.buffer, resBytes.byteOffset + offset, 32);
+                    let bVal = bytesToBigIntLE(bBytes);
+                    offset += 32;
+
+                    let largePrime = "1";
+                    if (is_partial) {
+                        let lpBytes = new Uint8Array(resBytes.buffer, resBytes.byteOffset + offset, 32);
+                        largePrime = bytesToBigIntLE(lpBytes).toString();
+                        offset += 32;
                     }
+
+                    let factorsCountVal = view.getUint16(offset, true);
+                    offset += 2;
+
+                    let factors = [];
+                    for (let fIdx = 0; fIdx < factorsCountVal; fIdx++) {
+                        factors.push(view.getUint32(offset, true));
+                        offset += 4;
+                    }
+
+                    let xBig = x_i64;
+                    xBig = (xBig % kN_Big + kN_Big) % kN_Big;
+
+                    let rel = {
+                        x: xBig.toString(),
+                        A: aVal.toString(),
+                        B: bVal.toString(),
+                        sign: sign,
+                        largePrime: largePrime,
+                        factors: factors
+                    };
+
                     postMessage({
                         type: MSG_TYPE_RELATION_FOUND,
                         target: target_N,
@@ -65,7 +106,5 @@ export async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId,
             }
             await new Promise(r => setTimeout(r, 0)); // yield control to JS event loop
         }
-    } finally {
-        worker.free();
     }
 }
