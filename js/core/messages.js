@@ -1,42 +1,42 @@
 // Message types between main thread and workers
-const MSG_CMD_INIT = "INIT";
-const MSG_CMD_STOP = "STOP";
-const MSG_CMD_SIQS_FACTORIZE = "SIQS_FACTORIZE";
-const MSG_CMD_FACTORIZE = "FACTORIZE";
+export const MSG_CMD_INIT = "INIT";
+export const MSG_CMD_STOP = "STOP";
+export const MSG_CMD_SIQS_FACTORIZE = "SIQS_FACTORIZE";
+export const MSG_CMD_FACTORIZE = "FACTORIZE";
 
-const MSG_TYPE_WASM_READY = "WASM_READY";
-const MSG_TYPE_INIT_COMPLETE = "INIT_COMPLETE";
-const MSG_TYPE_LOG = "LOG";
-const MSG_TYPE_PHASE_UPDATE = "PHASE_UPDATE";
-const MSG_TYPE_PRIME_FOUND = "PRIME_FOUND";
-const MSG_TYPE_FACTOR_FOUND = "FACTOR_FOUND";
-const MSG_TYPE_EXHAUSTED = "EXHAUSTED";
-const MSG_TYPE_RELATION_FOUND = "RELATION_FOUND";
-const MSG_TYPE_STOP_ACK = "STOP_ACK";
+export const MSG_TYPE_WASM_READY = "WASM_READY";
+export const MSG_TYPE_INIT_COMPLETE = "INIT_COMPLETE";
+export const MSG_TYPE_LOG = "LOG";
+export const MSG_TYPE_PHASE_UPDATE = "PHASE_UPDATE";
+export const MSG_TYPE_PRIME_FOUND = "PRIME_FOUND";
+export const MSG_TYPE_FACTOR_FOUND = "FACTOR_FOUND";
+export const MSG_TYPE_EXHAUSTED = "EXHAUSTED";
+export const MSG_TYPE_RELATION_FOUND = "RELATION_FOUND";
+export const MSG_TYPE_STOP_ACK = "STOP_ACK";
 
-const Messages = {
+export const Messages = {
     createInit(workerId, sieveLimit) {
         return { cmd: MSG_CMD_INIT, workerId, params: { sieveLimit } };
     },
     createStop() {
         return { cmd: MSG_CMD_STOP };
     },
-    createSiqsFactorize(target, kN, params) {
-        return { cmd: MSG_CMD_SIQS_FACTORIZE, target, kN, params };
+    createSiqsFactorize(target, kN, sessionId, params) {
+        return { cmd: MSG_CMD_SIQS_FACTORIZE, target, kN, sessionId, params };
     },
-    createFactorize(target, params) {
-        return { cmd: MSG_CMD_FACTORIZE, target, params };
+    createFactorize(target, sessionId, params) {
+        return { cmd: MSG_CMD_FACTORIZE, target, sessionId, params };
     },
-    createLog(workerId, msg, level) {
-        return { type: MSG_TYPE_LOG, workerId, msg, level };
+    createLog(workerId, sessionId, msg, level) {
+        return { type: MSG_TYPE_LOG, workerId, sessionId, msg, level };
     },
-    createPrimeFound(workerId, target) {
-        return { type: MSG_TYPE_PRIME_FOUND, workerId, target };
+    createPrimeFound(workerId, sessionId, target) {
+        return { type: MSG_TYPE_PRIME_FOUND, workerId, sessionId, target };
     },
-    createFactorFound(workerId, target, factor, method) {
-        return { type: MSG_TYPE_FACTOR_FOUND, workerId, target, factor, method };
+    createFactorFound(workerId, sessionId, target, factor, method) {
+        return { type: MSG_TYPE_FACTOR_FOUND, workerId, sessionId, target, factor, method };
     },
-    createExhausted(workerId, target) {
-        return { type: MSG_TYPE_EXHAUSTED, workerId, target };
+    createExhausted(workerId, sessionId, target) {
+        return { type: MSG_TYPE_EXHAUSTED, workerId, sessionId, target };
     }
 };

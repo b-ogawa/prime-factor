@@ -1,4 +1,28 @@
-class FactorizationEngine extends EventEmitter {
+import { EventEmitter } from './event_emitter.js';
+import { SIQSCoordinator } from './siqs_coordinator.js';
+import { TaskQueue } from './task_queue.js';
+import { WorkerPool } from './worker_pool.js';
+import {
+    EngineStateMachine,
+    STATE_IDLE,
+    STATE_INITIALIZING,
+    STATE_RUNNING,
+    STATE_STOPPING,
+    STATE_COMPLETED,
+    STATE_ABORTED
+} from './state_machine.js';
+import {
+    Messages,
+    MSG_TYPE_STOP_ACK,
+    MSG_TYPE_PHASE_UPDATE,
+    MSG_TYPE_LOG,
+    MSG_TYPE_PRIME_FOUND,
+    MSG_TYPE_FACTOR_FOUND,
+    MSG_TYPE_EXHAUSTED,
+    MSG_TYPE_RELATION_FOUND
+} from './messages.js';
+
+export class FactorizationEngine extends EventEmitter {
     constructor() {
         super();
 
@@ -28,6 +52,19 @@ class FactorizationEngine extends EventEmitter {
         this.currentParams = {};
         this.startTime = null;
         this.timerInterval = null;
+        this.currentSessionId = null;
+        this.stopTimeout = null;
+
+        // Command Dispatcher Router Map
+        this.messageHandlers = {
+            [MSG_TYPE_STOP_ACK]: (data) => this.handleStopAck(data),
+            [MSG_TYPE_PHASE_UPDATE]: (data) => this.handlePhaseUpdate(data),
+            [MSG_TYPE_LOG]: (data) => this.handleCoreLog(data),
+            [MSG_TYPE_PRIME_FOUND]: (data) => this.handlePrimeFound(data),
+            [MSG_TYPE_FACTOR_FOUND]: (data) => this.handleFactorFound(data),
+            [MSG_TYPE_EXHAUSTED]: (data) => this.handleExhausted(data),
+            [MSG_TYPE_RELATION_FOUND]: (data) => this.handleRelationFound(data),
+        };
     }
 
     initWorkers() {
@@ -57,6 +94,9 @@ class FactorizationEngine extends EventEmitter {
 
         this.currentParams = inputParams;
 
+        // Create new session ID for unique tracking
+        this.currentSessionId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2);
+
         this.taskQueue.init(targetBig);
         this.stateMachine.transition(STATE_INITIALIZING);
         this.emit('log', `[SYSTEM START] Factorization target: ${targetBig.toString()}`, "sys");
@@ -83,10 +123,24 @@ class FactorizationEngine extends EventEmitter {
             this.workerPool.stopAll();
             this.stopTimer();
             this.emit('log', "[USER ABORT] Sent halt signal to all worker threads. Waiting for cores to halt...", "warning");
+
+            if (this.stopTimeout) clearTimeout(this.stopTimeout);
+            // 3-second timeout for hard termination if workers are unresponsive (due to infinite loops in WASM)
+            this.stopTimeout = setTimeout(() => {
+                this.emit('log', "[SYSTEM WARNING] Workers failed to acknowledge stop signal within timeout. Hard-terminating...", "warning");
+                // Terminate and recreate pool
+                let sLimit = Math.max(this.currentParams.trialLimit || 10000, (this.currentParams.b1 || 0) * 50, 10000);
+                this.workerPool.terminateAndRecreate(sLimit);
+                this.finalizeStop();
+            }, 3000);
         }
     }
 
     finalizeStop() {
+        if (this.stopTimeout) {
+            clearTimeout(this.stopTimeout);
+            this.stopTimeout = null;
+        }
         this.taskQueue.rollbackActiveTarget();
         this.stateMachine.transition(STATE_ABORTED);
         this.emit('log', "[USER ABORT] All cores have successfully halted.", "warning");
@@ -105,58 +159,76 @@ class FactorizationEngine extends EventEmitter {
     }
 
     handleWorkerMessage(data) {
-        if (data.type === MSG_TYPE_STOP_ACK) {
-            if (this.stateMachine.is(STATE_STOPPING)) {
-                this.workerPool.stopAcksNeeded--;
-                if (this.workerPool.stopAcksNeeded <= 0) {
-                    this.finalizeStop();
-                }
-            }
+        // Drop messages that do not belong to the current session (stale messages from previous runs)
+        if (data.type !== MSG_TYPE_STOP_ACK && data.sessionId && data.sessionId !== this.currentSessionId) {
             return;
         }
 
-        if (!this.stateMachine.is(STATE_RUNNING)) return;
+        const handler = this.messageHandlers[data.type];
+        if (handler) {
+            handler(data);
+        }
+    }
 
-        if (data.type === MSG_TYPE_PHASE_UPDATE) {
-            this.emit('updateCoreStatus', data.workerId, data.phase, data.detail);
-        }
-        else if (data.type === MSG_TYPE_LOG) {
-            if (data.level === 'sys' || data.level === 'error') {
-                this.emit('log', `[Core ${data.workerId}] ${data.msg}`, data.level);
+    handleStopAck(data) {
+        if (this.stateMachine.is(STATE_STOPPING)) {
+            this.workerPool.stopAcksNeeded--;
+            if (this.workerPool.stopAcksNeeded <= 0) {
+                this.finalizeStop();
             }
         }
-        else if (data.type === MSG_TYPE_PRIME_FOUND) {
-            if (this.taskQueue.getActive() === data.target) {
-                this.emit('log', `[PRIME CONFIRMED] ${data.target.toString()}`, 'success');
-                this.taskQueue.addPrime(data.target);
+    }
+
+    handlePhaseUpdate(data) {
+        if (!this.stateMachine.is(STATE_RUNNING)) return;
+        this.emit('updateCoreStatus', data.workerId, data.phase, data.detail);
+    }
+
+    handleCoreLog(data) {
+        if (!this.stateMachine.is(STATE_RUNNING)) return;
+        if (data.level === 'sys' || data.level === 'error') {
+            this.emit('log', `[Core ${data.workerId}] ${data.msg}`, data.level);
+        }
+    }
+
+    handlePrimeFound(data) {
+        if (!this.stateMachine.is(STATE_RUNNING)) return;
+        if (this.taskQueue.getActive() !== null && this.taskQueue.getActive().toString() === data.target.toString()) {
+            this.emit('log', `[PRIME CONFIRMED] ${data.target.toString()}`, 'success');
+            this.taskQueue.addPrime(BigInt(data.target));
+            this.taskQueue.clearActive();
+            this.stopWorkersAndResume();
+        }
+    }
+
+    handleFactorFound(data) {
+        if (!this.stateMachine.is(STATE_RUNNING)) return;
+        if (this.taskQueue.getActive() !== null && this.taskQueue.getActive().toString() === data.target.toString()) {
+            let f1 = BigInt(data.factor);
+            let f2 = this.taskQueue.getActive() / f1;
+            this.emit('log', `[FACTOR DISCOVERED] Found by Core ${data.workerId} via ${data.method}: ${f1.toString()}`, 'success');
+            this.taskQueue.addFactors(f1, f2);
+            this.taskQueue.clearActive();
+            this.stopWorkersAndResume();
+        }
+    }
+
+    handleExhausted(data) {
+        if (!this.stateMachine.is(STATE_RUNNING)) return;
+        if (this.taskQueue.getActive() !== null && this.taskQueue.getActive().toString() === data.target.toString()) {
+            this.workerPool.activeWorkersCount--;
+            if (this.workerPool.activeWorkersCount === 0) {
+                this.emit('log', `[BOUND EXHAUSTED] All cores failed to factor: ${data.target.toString()}`, 'error');
+                this.taskQueue.addUnresolved(BigInt(data.target));
                 this.taskQueue.clearActive();
                 this.stopWorkersAndResume();
             }
         }
-        else if (data.type === MSG_TYPE_FACTOR_FOUND) {
-            if (this.taskQueue.getActive() === data.target) {
-                let f1 = BigInt(data.factor);
-                let f2 = this.taskQueue.getActive() / f1;
-                this.emit('log', `[FACTOR DISCOVERED] Found by Core ${data.workerId} via ${data.method}: ${f1.toString()}`, 'success');
-                this.taskQueue.addFactors(f1, f2);
-                this.taskQueue.clearActive();
-                this.stopWorkersAndResume();
-            }
-        }
-        else if (data.type === MSG_TYPE_EXHAUSTED) {
-            if (this.taskQueue.getActive() === data.target) {
-                this.workerPool.activeWorkersCount--;
-                if (this.workerPool.activeWorkersCount === 0) {
-                    this.emit('log', `[BOUND EXHAUSTED] All cores failed to factor: ${data.target.toString()}`, 'error');
-                    this.taskQueue.addUnresolved(data.target);
-                    this.taskQueue.clearActive();
-                    this.stopWorkersAndResume();
-                }
-            }
-        }
-        else if (data.type === MSG_TYPE_RELATION_FOUND) {
-            this.siqsCoordinator.handleRelation(data);
-        }
+    }
+
+    handleRelationFound(data) {
+        if (!this.stateMachine.is(STATE_RUNNING)) return;
+        this.siqsCoordinator.handleRelation(data);
     }
 
     stopWorkers() {
@@ -181,7 +253,7 @@ class FactorizationEngine extends EventEmitter {
 
         this.workerPool.activeWorkersCount = this.maxWorkers;
         this.workerPool.broadcast(
-            Messages.createFactorize(this.taskQueue.getActive(), this.currentParams)
+            Messages.createFactorize(this.taskQueue.getActive().toString(), this.currentSessionId, this.currentParams)
         );
     }
 
@@ -206,7 +278,7 @@ class FactorizationEngine extends EventEmitter {
 
             // Route
             if (mode === 'siqs' || (mode === 'auto' && targetDigits >= 24 && targetDigits <= 65)) {
-                this.siqsCoordinator.runPipeline(nextTarget, this.maxWorkers);
+                this.siqsCoordinator.runPipeline(nextTarget, this.maxWorkers, this.currentSessionId);
             } else {
                 // Fallback Suite
                 this.emit('hideSIQSPanel');
@@ -215,7 +287,7 @@ class FactorizationEngine extends EventEmitter {
                 this.workerPool.activeWorkersCount = this.maxWorkers;
 
                 this.workerPool.broadcast(
-                    Messages.createFactorize(nextTarget, this.currentParams)
+                    Messages.createFactorize(nextTarget.toString(), this.currentSessionId, this.currentParams)
                 );
             }
         }

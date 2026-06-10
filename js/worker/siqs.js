@@ -1,4 +1,9 @@
-async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId) {
+import { generateFactorBase } from '../core/math.js';
+import { bigIntToBytesLE } from '../core/math_utils.js';
+import { MSG_TYPE_RELATION_FOUND } from '../core/messages.js';
+import { SiqsWorker } from '../wasm/wasm_engine.js';
+
+export async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId, sessionId) {
     let fbSize = params.fbSize;
     let M = params.M;
     let maxWorkers = params.maxWorkers || 8;
@@ -24,7 +29,7 @@ async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId) {
     }
 
     let sieveLimit = M * 2;
-    let worker = new wasm_bindgen.SiqsWorker(nBytes, fbPrimes, fbLogs, fbRBytes, sieveLimit, ctx.workerId);
+    let worker = new SiqsWorker(nBytes, fbPrimes, fbLogs, fbRBytes, sieveLimit, ctx.workerId);
 
     try {
         let polys_searched = 0;
@@ -38,9 +43,16 @@ async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId) {
 
                 for (let i = 0; i < res.relations.length; i++) {
                     let rel = res.relations[i];
+                    // Normalize x mod kN to avoid negative number serialization issues (Bug 7)
+                    if (rel.x) {
+                        let xBig = BigInt(rel.x);
+                        xBig = (xBig % kN_Big + kN_Big) % kN_Big;
+                        rel.x = xBig.toString();
+                    }
                     postMessage({
                         type: MSG_TYPE_RELATION_FOUND,
                         target: target_N,
+                        sessionId: sessionId,
                         rel: rel,
                         polyCount: polys_searched
                     });

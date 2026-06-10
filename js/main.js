@@ -1,11 +1,13 @@
-// Main entry point for the Factorization Engine App
+import { UIController } from './core/ui.js';
+import { FactorizationEngine } from './core/engine.js';
+import init from './wasm/wasm_engine.js';
 
 let engine;
 let ui;
 
 window.onload = async () => {
     // Initialize WASM module on the main thread for SIQS Coordinator
-    await wasm_bindgen({ module_or_path: 'js/wasm/wasm_engine_bg.wasm' });
+    await init();
 
     ui = new UIController();
     engine = new FactorizationEngine();
@@ -51,6 +53,7 @@ window.onload = async () => {
     engine.on('resetTimer', () => ui.resetTimer());
     engine.on('updateTimer', (d) => ui.updateTimer(d));
     engine.on('updateCoreStatus', (i, p, d) => ui.updateCoreStatus(i, p, d));
+    
     engine.initWorkers();
 
     // Set up event listeners

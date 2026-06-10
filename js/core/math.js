@@ -1,7 +1,7 @@
 // Common Math Utilities for both Main Thread and Web Workers
 
 // CSPRNG
-function getSecureRandomBigInt(min, max) {
+export function getSecureRandomBigInt(min, max) {
     const cryptoObj = typeof window !== 'undefined' ? window.crypto : self.crypto;
     const arr = new Uint32Array(4);
     cryptoObj.getRandomValues(arr);
@@ -13,7 +13,7 @@ function getSecureRandomBigInt(min, max) {
     return min + (val % range);
 }
 
-function getSecureSigma() {
+export function getSecureSigma() {
     const cryptoObj = typeof window !== 'undefined' ? window.crypto : self.crypto;
     const arr = new Uint32Array(2);
     cryptoObj.getRandomValues(arr);
@@ -22,13 +22,13 @@ function getSecureSigma() {
 }
 
 // Math utilities
-function gcd(a, b) {
+export function gcd(a, b) {
     a = a < 0n ? -a : a; b = b < 0n ? -b : b;
     while (b > 0n) { let temp = b; b = a % b; a = temp; }
     return a;
 }
 
-function extGCDInverse(a, m) {
+export function extGCDInverse(a, m) {
     a = (a % m + m) % m;
     let x0 = 1n, y0 = 0n, x1 = 0n, y1 = 1n;
     let b = m;
@@ -43,7 +43,7 @@ function extGCDInverse(a, m) {
 }
 
 // Batch inversion
-function batchInversion(arr, M) {
+export function batchInversion(arr, M) {
     let len = arr.length;
     if (len === 0) return { success: true, inverses: [] };
     let s = new Array(len);
@@ -63,7 +63,7 @@ function batchInversion(arr, M) {
     return { success: true, inverses: inverses };
 }
 
-function powMod(base, exp, mod) {
+export function powMod(base, exp, mod) {
     let res = 1n;
     base = base % mod;
     while (exp > 0n) {
@@ -74,7 +74,7 @@ function powMod(base, exp, mod) {
     return res;
 }
 
-function isPrime(n) {
+export function isPrime(n) {
     if (n < 2) return false;
     if (n === 2 || n === 3) return true;
     if (n % 2 === 0 || n % 3 === 0) return false;
@@ -84,7 +84,7 @@ function isPrime(n) {
     return true;
 }
 
-function jacobi(a, n) {
+export function jacobi(a, n) {
     a = (a % n + n) % n;
     let t = 1n;
     while (a !== 0n) {
@@ -101,7 +101,7 @@ function jacobi(a, n) {
 }
 
 // Tonelli-Shanks
-function legendre(a, p) {
+export function legendre(a, p) {
     if (p === 2n) return 1;
     let val = powMod(a, (p - 1n) >> 1n, p);
     if (val === 0n) return 0;
@@ -109,7 +109,7 @@ function legendre(a, p) {
     return 1;
 }
 
-function tonelliShanks(n, p) {
+export function tonelliShanks(n, p) {
     let n_mod = n % p;
     if (n_mod === 0n) return 0n;
     if (p === 2n) return n_mod;
@@ -136,7 +136,7 @@ function tonelliShanks(n, p) {
     return r;
 }
 
-function sievePrimes(max) {
+export function sievePrimes(max) {
     if (max < 2) return [];
     let isPrimeArr = new Uint8Array(max + 1).fill(1);
     isPrimeArr[0] = isPrimeArr[1] = 0;
@@ -153,7 +153,7 @@ function sievePrimes(max) {
 }
 
 // Montgomery Space
-class MontgomerySpace {
+export class MontgomerySpace {
     constructor(n) {
         this.n = n;
         this.k = BigInt(n.toString(2).length);
@@ -216,7 +216,7 @@ class MontgomerySpace {
     }
 }
 
-function isSquare(n) {
+export function isSquare(n) {
     if (n < 0n) return false; if (n === 0n) return true;
     let mod16 = Number(n & 15n);
     if (mod16 !== 0 && mod16 !== 1 && mod16 !== 4 && mod16 !== 9) return false;
@@ -225,7 +225,7 @@ function isSquare(n) {
     return x * x === n;
 }
 
-function millerRabinBaseMont(n, base, mont) {
+export function millerRabinBaseMont(n, base, mont) {
     let d = n - 1n, s = 0n;
     while (d % 2n === 0n) { d /= 2n; s++; }
     let a = mont.transform(base);
@@ -240,7 +240,7 @@ function millerRabinBaseMont(n, base, mont) {
     return false;
 }
 
-function strongLucasTest(n, D, P, Q) {
+export function strongLucasTest(n, D, P, Q) {
     let s = 0n, d = n + 1n;
     while (d % 2n === 0n) { s++; d /= 2n; }
     let kBin = d.toString(2);
@@ -265,7 +265,7 @@ function strongLucasTest(n, D, P, Q) {
     return false;
 }
 
-function isPrimeBPSW(n, mont) {
+export function isPrimeBPSW(n, mont) {
     if (n < 2n) return false;
     if (n === 2n || n === 3n || n === 5n || n === 7n) return true;
     if (n % 2n === 0n || n % 3n === 0n || n % 5n === 0n) return false;
@@ -292,7 +292,7 @@ function isPrimeBPSW(n, mont) {
     return strongLucasTest(n, D, P, Q);
 }
 
-function sqrtBigInt(n) {
+export function sqrtBigInt(n) {
     if (n < 0n) return 0n;
     if (n === 0n) return 0n;
     let x = n, y = (x + 1n) >> 1n;
@@ -300,7 +300,7 @@ function sqrtBigInt(n) {
     return x;
 }
 
-function generateFactorBase(N, targetSize) {
+export function generateFactorBase(N, targetSize) {
     let fb = [];
     fb.push({ p: 2, log: 8, r: 1n });
     let candidate = 3;

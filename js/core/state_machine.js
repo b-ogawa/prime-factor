@@ -1,11 +1,13 @@
-const STATE_IDLE = 'IDLE';
-const STATE_INITIALIZING = 'INITIALIZING';
-const STATE_RUNNING = 'RUNNING';
-const STATE_STOPPING = 'STOPPING';
-const STATE_COMPLETED = 'COMPLETED';
-const STATE_ABORTED = 'ABORTED';
+import { EventEmitter } from './event_emitter.js';
 
-class EngineStateMachine extends EventEmitter {
+export const STATE_IDLE = 'IDLE';
+export const STATE_INITIALIZING = 'INITIALIZING';
+export const STATE_RUNNING = 'RUNNING';
+export const STATE_STOPPING = 'STOPPING';
+export const STATE_COMPLETED = 'COMPLETED';
+export const STATE_ABORTED = 'ABORTED';
+
+export class EngineStateMachine extends EventEmitter {
     constructor() {
         super();
         this.state = STATE_IDLE;

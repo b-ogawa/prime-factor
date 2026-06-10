@@ -1,26 +1,25 @@
-// --- WASM Adapter ---
-// Shared globally since both main thread (engine.js/siqs_coordinator.js) and worker (main.js)
-// use these serialization routines to communicate with WASM.
+import { is_prime_bpsw_bytes, pollard_p1_bytes, pollard_brent_bytes, EcmRunner, SiqsReducer } from '../wasm/wasm_engine.js';
+import { bigIntToBytesLE, bytesToBigIntLE } from './math_utils.js';
 
-const WasmAdapter = {
+export const WasmAdapter = {
     isPrime(bigIntNum) {
         let bytes = bigIntToBytesLE(bigIntNum);
-        return wasm_bindgen.is_prime_bpsw_bytes(bytes);
+        return is_prime_bpsw_bytes(bytes);
     },
     pollardP1(bigIntNum, limit, sievedPrimes) {
         let bytes = bigIntToBytesLE(bigIntNum);
         let primesArr = new Uint32Array(sievedPrimes);
-        let factorBytes = wasm_bindgen.pollard_p1_bytes(bytes, limit, primesArr);
+        let factorBytes = pollard_p1_bytes(bytes, limit, primesArr);
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
     },
     pollardRho(bigIntNum, limit) {
         let bytes = bigIntToBytesLE(bigIntNum);
-        let factorBytes = wasm_bindgen.pollard_brent_bytes(bytes, limit);
+        let factorBytes = pollard_brent_bytes(bytes, limit);
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
     },
     createEcmRunner(bigIntNum, b1) {
         let bytes = bigIntToBytesLE(bigIntNum);
-        return new wasm_bindgen.EcmRunner(bytes, b1);
+        return new EcmRunner(bytes, b1);
     },
     ecmRunCurves(runner, curves_to_run) {
         let factorBytes = runner.run_curves(curves_to_run);
@@ -29,7 +28,7 @@ const WasmAdapter = {
     createSiqsReducer(nBig, knBig, fbArr) {
         let n_bytes = bigIntToBytesLE(nBig);
         let kn_bytes = bigIntToBytesLE(knBig);
-        let wasmInstance = new wasm_bindgen.SiqsReducer(n_bytes, kn_bytes, fbArr);
+        let wasmInstance = new SiqsReducer(n_bytes, kn_bytes, fbArr);
         return new SafeWasmWrapper(wasmInstance);
     },
     addSiqsRelation(reducerWrapper, sign, xBig, bBig, aBig, factors) {
@@ -44,10 +43,18 @@ const WasmAdapter = {
         if (!reducerWrapper || reducerWrapper.isFreed) return null;
         let factorBytes = reducerWrapper.instance.reduce_matrix();
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
+    },
+    withReducer(nBig, knBig, fbArr, callback) {
+        const reducer = this.createSiqsReducer(nBig, knBig, fbArr);
+        try {
+            return callback(reducer);
+        } finally {
+            reducer.free();
+        }
     }
 };
 
-class SafeWasmWrapper {
+export class SafeWasmWrapper {
     constructor(instance) {
         this.instance = instance;
         this.isFreed = false;
@@ -64,4 +71,4 @@ class SafeWasmWrapper {
             this.instance = null;
         }
     }
-};
+}

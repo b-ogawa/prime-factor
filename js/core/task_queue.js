@@ -1,4 +1,6 @@
-class TaskQueue extends EventEmitter {
+import { EventEmitter } from './event_emitter.js';
+
+export class TaskQueue extends EventEmitter {
     constructor() {
         super();
         this.queue = [];

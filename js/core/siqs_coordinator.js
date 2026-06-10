@@ -1,8 +1,14 @@
-class SIQSCoordinator extends EventEmitter {
+import { EventEmitter } from './event_emitter.js';
+import { generateFactorBase, extGCDInverse, gcd } from './math.js';
+import { WasmAdapter } from './wasm_adapter.js';
+import { MSG_CMD_SIQS_FACTORIZE } from './messages.js';
+
+export class SIQSCoordinator extends EventEmitter {
     constructor() {
         super();
         this.active = false;
         this.activeTarget = null;
+        this.currentSessionId = null;
         this.FB = [];
         this.relations = [];
         this.relationSignatures = new Set();
@@ -41,8 +47,12 @@ class SIQSCoordinator extends EventEmitter {
             for (let p of primes) {
                 if (kN % p === 0n) {
                     score += 1.0 / Number(p);
-                } else if (jacobi(kN, p) === 1n) {
-                    score += 2.0 / Number(p);
+                } else if (kN % p !== 0n && (kN % p + p) % p !== 0n) {
+                    // Jacobi function is globally exported
+                    let jVal = jacobi(kN, p);
+                    if (jVal === 1n) {
+                        score += 2.0 / Number(p);
+                    }
                 }
             }
             let mod8 = Number(kN % 8n);
@@ -55,13 +65,15 @@ class SIQSCoordinator extends EventEmitter {
         return bestK;
     }
 
-    runPipeline(N, maxWorkers) {
+    runPipeline(N, maxWorkers, sessionId) {
         this.active = true;
         this.activeTarget = N;
+        this.currentSessionId = sessionId;
         this.relations = [];
         this.relationSignatures = new Set();
         this.startTime = Date.now();
         this.isReducing = false;
+        this.partialRelations = new Map();
 
         let k = this.chooseMultiplier(N);
         let kN = N * k;
@@ -86,8 +98,9 @@ class SIQSCoordinator extends EventEmitter {
         // Dispatch tasks
         this.emit('siqsTaskGenerated', {
             cmd: MSG_CMD_SIQS_FACTORIZE,
-            target: N,
+            target: N.toString(),
             kN: kN.toString(),
+            sessionId: sessionId,
             params: {
                 fbSize: params.fbSize,
                 M: params.M,
@@ -98,25 +111,22 @@ class SIQSCoordinator extends EventEmitter {
     }
 
     handleRelation(data) {
-        if (!this.active || this.activeTarget !== data.target) return;
+        if (!this.active || this.currentSessionId !== data.sessionId) return;
         
         if (!this.partialRelations) this.partialRelations = new Map();
 
         // Check if it's a partial relation
         if (data.rel.largePrime) {
             let lp = data.rel.largePrime;
-            if (this.partialRelations.has(lp)) {
-                let r1 = this.partialRelations.get(lp);
+            // Pair partial relations strictly with the same A to preserve mathematical correctness (A1*A2 = A^2)
+            let key = `${data.rel.A}_${lp}`;
+            if (this.partialRelations.has(key)) {
+                let r1 = this.partialRelations.get(key);
                 let r2 = data.rel;
                 
                 // Combine r1 and r2 into a full relation
                 let kNBig = BigInt(this.activeTarget) * this.k;
                 let L = BigInt(lp);
-                
-                // V1 = A1 * x1^2 + 2 * B1 * x1 + C1? No, we need A1*x1 + B1
-                // Actually the relation is: (A*x + B)^2 = A * (A*x^2 + 2Bx + C) mod kN
-                // For combining partial relations (u1^2 = v1 * L mod N) and (u2^2 = v2 * L mod N)
-                // (u1 * u2 * L^-1)^2 = v1 * v2 mod N
                 
                 let u1 = (BigInt(r1.A) * BigInt(r1.x) + BigInt(r1.B)) % kNBig;
                 if (u1 < 0n) u1 += kNBig;
@@ -141,10 +151,10 @@ class SIQSCoordinator extends EventEmitter {
                     };
                     
                     // Remove the partial
-                    this.partialRelations.delete(lp);
+                    this.partialRelations.delete(key);
                     
                     // We recursively process this synthesized relation
-                    this.handleRelation({ target: data.target, rel: combinedRel, polyCount: data.polyCount });
+                    this.handleRelation({ target: data.target, sessionId: data.sessionId, rel: combinedRel, polyCount: data.polyCount });
                 } else {
                     // This means gcd(L, kNBig) > 1, so we found a factor!
                     let g = gcd(L, BigInt(this.activeTarget));
@@ -158,12 +168,12 @@ class SIQSCoordinator extends EventEmitter {
                     }
                 }
             } else {
-                this.partialRelations.set(lp, data.rel);
+                this.partialRelations.set(key, data.rel);
             }
             return;
         }
 
-        // Use BigInt representation to form a stable string-free signature where possible, or an optimized hash
+        // Use BigInt representation to form a stable signature
         let sig = `${data.rel.x}-${data.rel.A}-${data.rel.B}`;
         if (!this.relationSignatures.has(sig)) {
             this.relationSignatures.add(sig);
@@ -190,7 +200,6 @@ class SIQSCoordinator extends EventEmitter {
 
             if (this.relations.length >= this.targetCount && !this.isReducing) {
                 this.isReducing = true;
-                // Relations collected
                 this.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
                 this.emit('siqsStopWorkers');
 
@@ -227,17 +236,13 @@ class SIQSCoordinator extends EventEmitter {
                 }
             }
             this.emit('log', "[SIQS FAILURE] Dependencies exhausted without non-trivial factors. Falling back to ECM.", "error");
-            // Fallback to ECM
             this.active = false;
             this.emit('siqsFallback');
         } finally {
-            // Free WASM memory
             if (this.wasmReducer) {
                 this.wasmReducer.free();
                 this.wasmReducer = null;
             }
         }
     }
-
-
 }

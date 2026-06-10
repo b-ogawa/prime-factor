@@ -1,4 +1,4 @@
-function bigIntToBytesLE(bigInt) {
+export function bigIntToBytesLE(bigInt) {
     if (bigInt === 0n) return new Uint8Array([0]);
 
     // Convert to positive, assuming the rust side will either treat it as positive
@@ -20,7 +20,7 @@ function bigIntToBytesLE(bigInt) {
     return bytes;
 }
 
-function bytesToBigIntLE(bytes) {
+export function bytesToBigIntLE(bytes) {
     let hex = '';
     for (let i = bytes.length - 1; i >= 0; i--) {
         let b = bytes[i].toString(16);

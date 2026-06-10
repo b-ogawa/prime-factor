@@ -1,4 +1,4 @@
-class UIController {
+export class UIController {
     constructor() {
         this.consoleLogEl = document.getElementById('consoleLog');
         this.factorsContainer = document.getElementById('factorsContainer');
@@ -122,7 +122,7 @@ class UIController {
 
             el.innerHTML = `
                 <div class="flex flex-col max-w-[80%] font-mono">
-                    <div class="flex items-center gap-2 mb-0.5">${typeBadge} <span class="text-slate-400 text-[10px]">${g.val.toString().length} digits</span></div>
+                     <div class="flex items-center gap-2 mb-0.5">${typeBadge} <span class="text-slate-400 text-[10px]">${g.val.toString().length} digits</span></div>
                     <span class="text-slate-800 break-all text-xs font-semibold">${g.val.toString()}${g.count > 1 ? ` <span class="text-emerald-600">^ ${g.count}</span>` : ''}</span>
                 </div>
             `;

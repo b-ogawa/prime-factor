@@ -1,13 +1,17 @@
-// Worker Context
-class WorkerContext {
+import { Messages, MSG_TYPE_STOP_ACK, MSG_TYPE_PHASE_UPDATE } from '../core/messages.js';
+
+export class WorkerContext {
     constructor() {
         this.workerId = 0;
         this.sievedPrimes = [];
         this.shouldStop = false;
         this.currentTaskId = null;
+        this.currentSessionId = null;
         this.lastYieldTime = Date.now();
         this.lastPhaseUpdate = 0;
         this.currentPhase = "";
+        this.stopAckSent = false;
+        this.wasmReadyPromise = null;
     }
 
     sendPhase(phase, detail, force) {
@@ -15,7 +19,13 @@ class WorkerContext {
         if (force || phase !== this.currentPhase || now - this.lastPhaseUpdate > 100) {
             this.currentPhase = phase;
             this.lastPhaseUpdate = now;
-            postMessage({ type: "PHASE_UPDATE", workerId: this.workerId, phase: phase, detail: detail });
+            postMessage({ 
+                type: MSG_TYPE_PHASE_UPDATE, 
+                workerId: this.workerId, 
+                sessionId: this.currentSessionId,
+                phase: phase, 
+                detail: detail 
+            });
         }
     }
 
@@ -40,4 +50,4 @@ class WorkerContext {
     }
 }
 
-const ctx = new WorkerContext();
+export const ctx = new WorkerContext();
