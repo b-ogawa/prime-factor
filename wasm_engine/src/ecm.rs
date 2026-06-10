@@ -7,6 +7,9 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec
     if n == Int::from(0) || n == Int::from(1) {
         return None;
     }
+    if n.as_limbs()[0] & 1 == 0 {
+        return Some(Int::from(2).to_le_bytes::<32>().to_vec()); // 偶数なら即座に2を返す
+    }
     let mont = MontgomerySpace::new(n);
     let mut prng = Xoroshiro128PlusPlus::new();
 
@@ -149,10 +152,12 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32]) -> Option<Vec
 #[wasm_bindgen]
 pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize) -> Option<Vec<u8>> {
     let n = int_from_le_slice(n_bytes);
-    if n == Int::from(0) {
+    if n == Int::from(0) || n == Int::from(1) {
         return None;
     }
-
+    if n.as_limbs()[0] & 1 == 0 {
+        return Some(Int::from(2).to_le_bytes::<32>().to_vec()); // 偶数なら即座に2を返す
+    }
     let mont = MontgomerySpace::new(n);
     let mut prng = Xoroshiro128PlusPlus::new();
 
@@ -343,7 +348,13 @@ fn get_suyama_curve(sigma: Int, n: Int) -> Result<(Int, Int), Option<Int>> {
     let s2_minus_5 = if s2 >= Int::from(5) {
         s2 - Int::from(5)
     } else {
-        (n - Int::from(5)) + s2
+        // 5 を法 N で割った余りを引くことでアンダーフローを完全に防ぐ
+        let five_mod_n = Int::from(5) % n;
+        if s2 >= five_mod_n {
+            s2 - five_mod_n
+        } else {
+            (n - five_mod_n) + s2
+        }
     };
     let u = s2_minus_5 % n;
     let v = Int::from_limbs(
@@ -503,7 +514,13 @@ impl EcmRunner {
     #[wasm_bindgen(constructor)]
     pub fn new(n_bytes: &[u8], b1: usize) -> Self {
         let n = int_from_le_slice(n_bytes);
-        let mont = MontgomerySpace::new(n);
+        
+        let mont_n = if n == Int::from(0) || n == Int::from(1) || n.as_limbs()[0] & 1 == 0 {
+            Int::from(3)
+        } else {
+            n
+        };
+        let mont = MontgomerySpace::new(mont_n);
         let prng = Xoroshiro128PlusPlus::new();
 
         let b2 = b1 * 50;
@@ -531,11 +548,13 @@ impl EcmRunner {
             if p > b1 {
                 break;
             }
-            let mut q = p;
-            while q * p <= b1 {
-                q *= p;
+            let mut q = p as u64;
+            let p_u64 = p as u64;
+            // u64 にして計算し、オーバーフロー時は saturating_mul で最大値にしてループを抜ける
+            while q.saturating_mul(p_u64) <= b1 as u64 {
+                q *= p_u64;
             }
-            phase1_powers.push(q as u64);
+            phase1_powers.push(q);
         }
 
         let phase2_primes: Vec<usize> = primes
@@ -557,6 +576,9 @@ impl EcmRunner {
     pub fn run_curves(&mut self, curves_to_run: usize) -> Option<Vec<u8>> {
         if self.n == Int::from(0) || self.n == Int::from(1) {
             return None;
+        }
+        if self.n.as_limbs()[0] & 1 == 0 {
+            return Some(Int::from(2).to_le_bytes::<32>().to_vec()); // 偶数なら即座に2を返す
         }
 
         for _ in 0..curves_to_run {

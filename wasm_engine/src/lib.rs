@@ -1,8 +1,7 @@
-use wasm_bindgen::prelude::*;
-use ruint::{aliases::U256, aliases::U512};
 use getrandom::getrandom;
+use ruint::{aliases::U256, aliases::U512};
+use wasm_bindgen::prelude::*;
 
-// Replace console_log with a macro or wasm_bindgen function if needed
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = console)]
@@ -11,8 +10,6 @@ extern "C" {
 
 pub mod ecm;
 
-// Fixed-size BigInt using ruint. Since our max is around 65 digits (~215 bits), U256 is perfect.
-// For multiplications that double the size, we can use U512.
 pub(crate) type Int = U256;
 pub(crate) type DoubleInt = U512;
 
@@ -56,7 +53,9 @@ impl MontgomerySpace {
         // Compute n_inv = -n^-1 mod 2^256
         let mut n_inv = n;
         for _ in 0..7 {
-            n_inv = n_inv.wrapping_mul(Int::from(2)).wrapping_sub(n.wrapping_mul(n_inv).wrapping_mul(n_inv));
+            n_inv = n_inv
+                .wrapping_mul(Int::from(2))
+                .wrapping_sub(n.wrapping_mul(n_inv).wrapping_mul(n_inv));
         }
         n_inv = !n_inv.wrapping_add(Int::from(1)); // -n_inv
 
@@ -81,28 +80,14 @@ impl MontgomerySpace {
         let t_low = Int::from_limbs(t_limbs);
         let m = t_low.wrapping_mul(self.n_inv);
         let mn = DoubleInt::from(m).wrapping_mul(DoubleInt::from(self.n));
-        
+
         let (sum, carry) = t.overflowing_add(mn);
         let res: DoubleInt = sum >> 256;
         let res_limbs: [u64; 4] = res.as_limbs()[..4].try_into().unwrap();
         let mut res_int = Int::from_limbs(res_limbs);
 
         if carry {
-            // Carry out represents exactly 2^512. After shifting right by 256, it's 2^256.
-            // But we operate within modulo self.n, and 2^256 = R.
-            // Actually, in the standard Montgomery reduction:
-            // (T + m*N) / R. If there's a carry out, we just add 1 to the MSB, which is equivalent to adding 1.
-            // Wait, (T + m*N) is exactly divisible by R. The 256 lower bits are 0.
-            // The value is exactly sum >> 256 + carry * (2^512 >> 256), which is + carry * 2^256.
-            // Mod N, we can just subtract N. 
-            // In typical U256 math, the top bit carry means the value is at least 2^256 > N.
-            // So we can compute res_int = res_int.wrapping_sub(self.n) + carry bit handling.
-            
-            // To be entirely safe and precise without manual carry arithmetic:
             let (mut new_res, _sub_carry) = res_int.overflowing_sub(self.n);
-            // Since we had a 2^256 carry out, after subtracting N, the result must be correct.
-            // In U256 math, sub_carry occurs if res_int < self.n, but we know the true value is res_int + 2^256.
-            // So res_int + 2^256 - self.n is exactly res_int.wrapping_sub(self.n).
             res_int = new_res;
         } else if res_int >= self.n {
             res_int = res_int - self.n;
@@ -128,7 +113,7 @@ impl MontgomerySpace {
         if a >= b {
             a - b
         } else {
-            a.wrapping_add(self.n).wrapping_sub(b)
+            self.n - (b - a)
         }
     }
 }
@@ -144,12 +129,16 @@ pub(crate) fn gcd(mut a: Int, mut b: Int) -> Int {
 }
 
 fn is_square(n: Int) -> bool {
-    if n == Int::from(0) { return true; }
+    if n == Int::from(0) {
+        return true;
+    }
     let mod16 = (n.as_limbs()[0] & 15) as u8;
-    if mod16 != 0 && mod16 != 1 && mod16 != 4 && mod16 != 9 { return false; }
+    if mod16 != 0 && mod16 != 1 && mod16 != 4 && mod16 != 9 {
+        return false;
+    }
 
     let mut x = n;
-    let mut y = (x + Int::from(1)) >> 1;
+    let mut y = (x >> 1) + Int::from(1);
     while y < x {
         x = y;
         y = (x + n / x) >> 1;
@@ -163,24 +152,32 @@ fn jacobi(mut a: Int, mut n: Int) -> i32 {
         while a.as_limbs()[0] % 2 == 0 {
             a >>= 1;
             let r = n.as_limbs()[0] % 8;
-            if r == 3 || r == 5 { t = -t; }
+            if r == 3 || r == 5 {
+                t = -t;
+            }
         }
         core::mem::swap(&mut a, &mut n);
-        if a.as_limbs()[0] % 4 == 3 && n.as_limbs()[0] % 4 == 3 { t = -t; }
+        if a.as_limbs()[0] % 4 == 3 && n.as_limbs()[0] % 4 == 3 {
+            t = -t;
+        }
         a = a % n;
     }
-    if n == Int::from(1) { t } else { 0 }
+    if n == Int::from(1) {
+        t
+    } else {
+        0
+    }
 }
 
 fn strong_lucas_test(n: Int) -> bool {
     // Port of strongLucasTest from math.js
-    let mut d = n + Int::from(1);
+    let mut d = DoubleInt::from(n) + DoubleInt::from(1);
     let mut s = 0;
     while d.as_limbs()[0] & 1 == 0 {
         s += 1;
         d >>= 1;
     }
-    
+
     // Find D
     let mut d_val = Int::from(5);
     let mut sign = 1i32;
@@ -200,56 +197,61 @@ fn strong_lucas_test(n: Int) -> bool {
         d_val = d_val + Int::from(2);
         sign = -sign;
     }
-    
+
     let p_val = Int::from(1);
     // Q = (1 - D) / 4 mod n. Since D = d_val * sign, 1 - D = 1 - d_val * sign
-    let q_val = if sign == 1 {
-        // 1 - d_val mod n => n + 1 - d_val
-        let num = n + Int::from(1) - d_val;
-        // Divide by 4 mod n: num * 4^-1 mod n
-        // Since n is odd, we can just do:
-        let mut q = num;
-        while q.as_limbs()[0] % 4 != 0 {
-            q = q + n;
-        }
-        q >> 2
+    // DoubleInt を用いた安全な Q の計算
+    let num_double = if sign == 1 {
+        DoubleInt::from(n) + DoubleInt::from(1) - DoubleInt::from(d_val)
     } else {
-        // 1 + d_val mod n
-        let mut q = Int::from(1) + d_val;
-        while q.as_limbs()[0] % 4 != 0 {
-            q = q + n;
-        }
-        q >> 2
+        DoubleInt::from(1) + DoubleInt::from(d_val)
     };
+
+    let mut q_double = num_double;
+    while q_double.as_limbs()[0] % 4 != 0 {
+        q_double += DoubleInt::from(n);
+    }
+    q_double >>= 2;
+    // nで割った余りを取る（安全のため）
+    let q_val = Int::from_limbs((q_double % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
 
     let q_val = q_val % n;
 
     let mut u = Int::from(1);
     let mut v = p_val;
     let mut qk = q_val;
-    
-    let d_bits = 256 - d.leading_zeros(); // bit length
+
+    let d_bits = 512 - d.leading_zeros(); // bit length
 
     for i in (0..d_bits - 1).rev() {
         // U_2k = (U * V) % n
         let u_double = DoubleInt::from(u).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
-        let mut u_2k = Int::from_limbs(u_double.as_limbs()[..4].try_into().unwrap());
-        
+        let u_2k = Int::from_limbs(u_double.as_limbs()[..4].try_into().unwrap());
+
         // V_2k = (V * V - 2 * Qk) % n
         let v2 = DoubleInt::from(v).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
         let qk2 = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(2)) % DoubleInt::from(n);
-        let v_2k_mod = if v2 >= qk2 { v2 - qk2 } else { v2 + DoubleInt::from(n) - qk2 };
-        let mut v_2k = Int::from_limbs(v_2k_mod.as_limbs()[..4].try_into().unwrap());
-        
+        let v_2k_mod = if v2 >= qk2 {
+            v2 - qk2
+        } else {
+            v2 + DoubleInt::from(n) - qk2
+        };
+        let v_2k = Int::from_limbs(v_2k_mod.as_limbs()[..4].try_into().unwrap());
+
         let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
         qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
-        
+
         u = u_2k;
         v = v_2k;
-        
-        if ((d >> i) & Int::from(1)) == Int::from(1) {
+
+        let word_idx = i / 64;
+        let bit_idx = i % 64;
+        let bit = (d.as_limbs()[word_idx] >> bit_idx) & 1;
+
+        if bit == 1 {
             // U_next = (P * U + V) / 2 % n
-            let mut u_next = DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
+            let mut u_next =
+                DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
             u_next = (u_next + DoubleInt::from(v)) % DoubleInt::from(n);
             let mut u_next_int = Int::from_limbs(u_next.as_limbs()[..4].try_into().unwrap());
             if u_next_int.as_limbs()[0] & 1 == 1 {
@@ -258,13 +260,19 @@ fn strong_lucas_test(n: Int) -> bool {
             } else {
                 u_next_int >>= 1;
             }
-            
+
             // V_next = (D * U + P * V) / 2 % n
-            let mut v_next_part1 = DoubleInt::from(d_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
+            let mut v_next_part1 =
+                DoubleInt::from(d_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
             if sign == -1 {
-                v_next_part1 = if v_next_part1 == DoubleInt::from(0) { DoubleInt::from(0) } else { DoubleInt::from(n) - v_next_part1 };
+                v_next_part1 = if v_next_part1 == DoubleInt::from(0) {
+                    DoubleInt::from(0)
+                } else {
+                    DoubleInt::from(n) - v_next_part1
+                };
             }
-            let mut v_next_part2 = DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
+            let mut v_next_part2 =
+                DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
             let mut v_next = (v_next_part1 + v_next_part2) % DoubleInt::from(n);
             let mut v_next_int = Int::from_limbs(v_next.as_limbs()[..4].try_into().unwrap());
             if v_next_int.as_limbs()[0] & 1 == 1 {
@@ -273,28 +281,33 @@ fn strong_lucas_test(n: Int) -> bool {
             } else {
                 v_next_int >>= 1;
             }
-            
+
             u = u_next_int;
             v = v_next_int;
-            
-            let qk_q = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(q_val)) % DoubleInt::from(n);
+
+            let qk_q =
+                DoubleInt::from(qk).wrapping_mul(DoubleInt::from(q_val)) % DoubleInt::from(n);
             qk = Int::from_limbs(qk_q.as_limbs()[..4].try_into().unwrap());
         }
     }
-    
+
     if u == Int::from(0) || v == Int::from(0) {
         return true;
     }
-    
+
     for _ in 1..s {
         let v2 = DoubleInt::from(v).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
         let qk2 = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(2)) % DoubleInt::from(n);
-        let v_next_mod = if v2 >= qk2 { v2 - qk2 } else { v2 + DoubleInt::from(n) - qk2 };
+        let v_next_mod = if v2 >= qk2 {
+            v2 - qk2
+        } else {
+            v2 + DoubleInt::from(n) - qk2
+        };
         v = Int::from_limbs(v_next_mod.as_limbs()[..4].try_into().unwrap());
-        
+
         let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
         qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
-        
+
         if v == Int::from(0) {
             return true;
         }
@@ -329,12 +342,18 @@ fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
     let one = mont.transform(Int::from(1));
     let minus_one = mont.transform(n - Int::from(1));
 
-    if x == one || x == minus_one { return true; }
+    if x == one || x == minus_one {
+        return true;
+    }
 
     for _ in 1..s {
         x = mont.mul(x, x);
-        if x == minus_one { return true; }
-        if x == one { return false; }
+        if x == minus_one {
+            return true;
+        }
+        if x == one {
+            return false;
+        }
     }
     false
 }
@@ -349,23 +368,39 @@ pub(crate) fn int_from_le_slice(bytes: &[u8]) -> Int {
 #[wasm_bindgen]
 pub fn is_prime_bpsw_bytes(n_bytes: &[u8]) -> bool {
     let n = int_from_le_slice(n_bytes);
-    if n < Int::from(2) { return false; }
-    if n == Int::from(2) || n == Int::from(3) || n == Int::from(5) || n == Int::from(7) { return true; }
-    if n.as_limbs()[0] % 2 == 0 || n.as_limbs()[0] % 3 == 0 || n.as_limbs()[0] % 5 == 0 { return false; }
+    if n < Int::from(2) {
+        return false;
+    }
+    if n == Int::from(2) || n == Int::from(3) || n == Int::from(5) || n == Int::from(7) {
+        return true;
+    }
+    if n.as_limbs()[0] % 2 == 0 || n.as_limbs()[0] % 3 == 0 || n.as_limbs()[0] % 5 == 0 {
+        return false;
+    }
 
     let mont = MontgomerySpace::new(n);
 
     let bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
     for &b in &bases {
         let b_int = Int::from(b);
-        if n == b_int { return true; }
-        if n < b_int { return false; }
-        if !miller_rabin_base_mont(n, b_int, &mont) { return false; }
+        if n == b_int {
+            return true;
+        }
+        if n < b_int {
+            return false;
+        }
+        if !miller_rabin_base_mont(n, b_int, &mont) {
+            return false;
+        }
     }
 
     if n.as_limbs()[1] > 0 || n.as_limbs()[2] > 0 || n.as_limbs()[3] > 0 {
-        if !miller_rabin_base_mont(n, Int::from(2), &mont) { return false; }
-        if is_square(n) { return false; }
+        if !miller_rabin_base_mont(n, Int::from(2), &mont) {
+            return false;
+        }
+        if is_square(n) {
+            return false;
+        }
         return strong_lucas_test(n);
     }
 
@@ -373,8 +408,13 @@ pub fn is_prime_bpsw_bytes(n_bytes: &[u8]) -> bool {
 }
 
 #[wasm_bindgen]
-pub fn sieve_primes_wasm(max: usize) -> Vec<u32> {
-    if max < 2 { return Vec::new(); }
+pub fn sieve_primes_wasm(mut max: usize) -> Vec<u32> {
+    if max > 100_000_000 {
+        max = 100_000_000;
+    }
+    if max < 2 {
+        return Vec::new();
+    }
     let mut is_prime = vec![true; max + 1];
     is_prime[0] = false;
     is_prime[1] = false;
@@ -388,11 +428,13 @@ pub fn sieve_primes_wasm(max: usize) -> Vec<u32> {
             }
         }
     }
-    is_prime.into_iter().enumerate().filter(|&(_, p)| p).map(|(i, _)| i as u32).collect()
+    is_prime
+        .into_iter()
+        .enumerate()
+        .filter(|&(_, p)| p)
+        .map(|(i, _)| i as u32)
+        .collect()
 }
-
-// This is a dummy function just to ensure the file parses successfully.
-// The actual logic is appended via another mechanism due to patch format issues.
 
 // --- SIQS MATRIX REDUCER (WASM) ---
 
@@ -426,7 +468,14 @@ impl SiqsReducer {
         }
     }
 
-    pub fn add_relation(&mut self, sign: i32, x_bytes: &[u8], b_bytes: &[u8], a_bytes: &[u8], factors: &[u32]) {
+    pub fn add_relation(
+        &mut self,
+        sign: i32,
+        x_bytes: &[u8],
+        b_bytes: &[u8],
+        a_bytes: &[u8],
+        factors: &[u32],
+    ) {
         self.relations.push(SiqsRelation {
             sign,
             x: x_bytes.to_vec(),
@@ -454,10 +503,12 @@ impl SiqsReducer {
             }
 
             for &f_idx in &rel.factors {
-                let col_idx = (f_idx + 1) as usize;
-                let w_idx = col_idx / 32;
-                let b_idx = col_idx % 32;
-                m[i][w_idx] ^= 1u32 << b_idx;
+                if (f_idx as usize) < self.fb.len() {
+                    let col_idx = (f_idx + 1) as usize;
+                    let w_idx = col_idx / 32;
+                    let b_idx = col_idx % 32;
+                    m[i][w_idx] ^= 1u32 << b_idx;
+                }
             }
         }
 
@@ -539,7 +590,9 @@ impl SiqsReducer {
                     exponent_sum[0] += 1;
                 }
                 for &f_idx in &rel.factors {
-                    exponent_sum[(f_idx + 1) as usize] += 1;
+                    if (f_idx as usize) < self.fb.len() {
+                        exponent_sum[(f_idx + 1) as usize] += 1;
+                    }
                 }
             }
 
@@ -566,30 +619,49 @@ impl SiqsReducer {
                     let mut exp = half as u32;
                     while exp > 0 {
                         if exp & 1 == 1 {
-                            let res_prod = DoubleInt::from(res).wrapping_mul(DoubleInt::from(base_pow));
-                            res = Int::from_limbs((res_prod % DoubleInt::from(self.kn)).as_limbs()[..4].try_into().unwrap());
+                            let res_prod =
+                                DoubleInt::from(res).wrapping_mul(DoubleInt::from(base_pow));
+                            res = Int::from_limbs(
+                                (res_prod % DoubleInt::from(self.kn)).as_limbs()[..4]
+                                    .try_into()
+                                    .unwrap(),
+                            );
                         }
-                        let base_prod = DoubleInt::from(base_pow).wrapping_mul(DoubleInt::from(base_pow));
-                        base_pow = Int::from_limbs((base_prod % DoubleInt::from(self.kn)).as_limbs()[..4].try_into().unwrap());
+                        let base_prod =
+                            DoubleInt::from(base_pow).wrapping_mul(DoubleInt::from(base_pow));
+                        base_pow = Int::from_limbs(
+                            (base_prod % DoubleInt::from(self.kn)).as_limbs()[..4]
+                                .try_into()
+                                .unwrap(),
+                        );
                         exp >>= 1;
                     }
 
                     let y_prod = DoubleInt::from(y_val).wrapping_mul(DoubleInt::from(res));
-                    y_val = Int::from_limbs((y_prod % DoubleInt::from(self.kn)).as_limbs()[..4].try_into().unwrap());
+                    y_val = Int::from_limbs(
+                        (y_prod % DoubleInt::from(self.kn)).as_limbs()[..4]
+                            .try_into()
+                            .unwrap(),
+                    );
                 }
             }
             if !success {
                 continue;
             }
 
-            let diff = if x_val >= y_val { x_val - y_val } else { x_val + self.kn - y_val };
+            let diff = if x_val >= y_val {
+                x_val - y_val
+            } else {
+                self.kn - (y_val - x_val)
+            };
             // Compute GCD against original N to avoid returning trivial k
             let mut g = gcd(diff, self.n);
             if g > Int::from(1) && g < self.n {
                 return Some(g.to_le_bytes::<32>().to_vec());
             }
 
-            let sum_double = (DoubleInt::from(x_val) + DoubleInt::from(y_val)) % DoubleInt::from(self.kn);
+            let sum_double =
+                (DoubleInt::from(x_val) + DoubleInt::from(y_val)) % DoubleInt::from(self.kn);
             let sum = Int::from_limbs(sum_double.as_limbs()[..4].try_into().unwrap());
             g = gcd(sum, self.n);
             if g > Int::from(1) && g < self.n {

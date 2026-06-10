@@ -2,6 +2,25 @@ use wasm_bindgen::prelude::*;
 use crate::{Int, DoubleInt, Xoroshiro128PlusPlus, int_from_le_slice};
 use crate::ecm::ext_gcd_inverse_internal;
 
+fn mod_inverse_u32(mut a: i64, mut m: i64) -> u32 {
+    let m0 = m;
+    let mut y = 0i64;
+    let mut x = 1i64;
+    if m == 1 { return 0; }
+    while a > 1 {
+        if m == 0 { return 0; }
+        let q = a / m;
+        let mut t = m;
+        m = a % m;
+        a = t;
+        t = y;
+        y = x - q * y;
+        x = t;
+    }
+    if x < 0 { x += m0; }
+    x as u32
+}
+
 #[wasm_bindgen]
 pub struct SiqsWorker {
     n: Int,
@@ -10,7 +29,6 @@ pub struct SiqsWorker {
     fb_r: Vec<Int>,
     sieve_limit: usize,
     m: usize,
-    q_inv_table: Vec<Vec<u32>>, // precomputed inverses for Carrier-Wagstaff
     prng: Xoroshiro128PlusPlus,
     worker_id: usize,
     s_val: usize,
@@ -21,8 +39,29 @@ pub struct SiqsWorker {
 #[wasm_bindgen]
 impl SiqsWorker {
     #[wasm_bindgen(constructor)]
-    pub fn new(kn_bytes: &[u8], fb_primes: &[u32], fb_logs: &[u8], fb_r_bytes: &[u8], sieve_limit: usize, worker_id: usize) -> Self {
+    pub fn new(kn_bytes: &[u8], fb_primes: &[u32], fb_logs: &[u8], fb_r_bytes: &[u8], sieve_limit: usize, worker_id: usize) -> Result<SiqsWorker, JsValue> {
+        if sieve_limit < 100 {
+            return Err(JsValue::from_str("sieve_limit must be at least 100"));
+        }
+
         let kn = int_from_le_slice(kn_bytes);
+
+        let digits = kn.to_string().len(); // approximation for bits is better but this matches JS
+        let mut s_val = 1;
+        if digits >= 24 { s_val = 2; }
+        if digits >= 32 { s_val = 3; }
+        if digits >= 40 { s_val = 4; }
+        if digits >= 48 { s_val = 5; }
+        if digits >= 56 { s_val = 6; }
+        if digits >= 64 { s_val = 7; }
+
+        if fb_primes.len() < s_val + 10 {
+            return Err(JsValue::from_str("fb_primes is too small"));
+        }
+        if fb_primes.contains(&0) {
+            return Err(JsValue::from_str("fb_primes must not contain 0"));
+        }
+
         let fb_len = fb_primes.len();
         
         let mut fb_r = Vec::with_capacity(fb_len);
@@ -37,54 +76,25 @@ impl SiqsWorker {
             fb_r.push(r_val);
         }
 
-        // Build q_inv_table
-        // q_inv_table[i][j] = (fb_primes[i])^{-1} mod fb_primes[j]
-        let mut q_inv_table = vec![vec![0u32; fb_len]; fb_len];
-        for i in 0..fb_len {
-            let q_i = Int::from(fb_primes[i]);
-            for j in 0..fb_len {
-                if i == j {
-                    q_inv_table[i][j] = 0;
-                    continue;
-                }
-                let p_j = Int::from(fb_primes[j]);
-                let q_mod = q_i % p_j;
-                if let Some(inv) = ext_gcd_inverse_internal(q_mod, p_j) {
-                    let limbs: &[u64] = inv.as_limbs();
-                    q_inv_table[i][j] = limbs[0] as u32;
-                }
-            }
-        }
-
         let mut prng = Xoroshiro128PlusPlus::new();
         // Seed offset based on worker_id
         for _ in 0..worker_id {
             prng.next();
         }
 
-        let digits = kn.to_string().len(); // approximation for bits is better but this matches JS
-        let mut s_val = 1;
-        if digits >= 24 { s_val = 2; }
-        if digits >= 32 { s_val = 3; }
-        if digits >= 40 { s_val = 4; }
-        if digits >= 48 { s_val = 5; }
-        if digits >= 56 { s_val = 6; }
-        if digits >= 64 { s_val = 7; }
-
-        SiqsWorker {
+        Ok(SiqsWorker {
             n: kn,
             fb: fb_primes.to_vec(),
             fb_log: fb_logs.to_vec(),
             fb_r,
             sieve_limit,
             m: sieve_limit / 2,
-            q_inv_table,
             prng,
             worker_id,
             s_val,
             kn,
             sieve: vec![0u16; sieve_limit],
-        }
+        })
     }
 }
 
@@ -189,7 +199,7 @@ impl SiqsWorker {
             let mut max_idx = opt_idx + w;
             if max_idx >= fb_len { max_idx = fb_len - 1; }
 
-            if max_idx - min_idx + 1 < s {
+            if max_idx < min_idx || max_idx - min_idx + 1 < s {
                 min_idx = start_idx;
                 max_idx = fb_len - 1;
             }
@@ -232,12 +242,15 @@ impl SiqsWorker {
             let mut best_diff = i64::MAX;
             for offset in 0..100 {
                 for sign in &[-1, 1] {
-                    let r_cand = (last_idx as isize + offset * sign) as usize;
-                    if r_cand >= start_idx && r_cand < fb_len && !used[r_cand] {
-                        let diff = (self.fb[r_cand] as i64 - target_rem as i64).abs();
-                        if diff < best_diff {
-                            best_diff = diff;
-                            best_r = r_cand;
+                    let cand = last_idx as isize + offset * sign;
+                    if cand >= start_idx as isize && cand < fb_len as isize {
+                        let r_cand = cand as usize;
+                        if !used[r_cand] {
+                            let diff = (self.fb[r_cand] as i64 - target_rem as i64).abs();
+                            if diff < best_diff {
+                                best_diff = diff;
+                                best_r = r_cand;
+                            }
                         }
                     }
                 }
@@ -291,12 +304,13 @@ impl SiqsWorker {
                 let p = self.fb[j];
                 let p_int = Int::from(p);
                 
-                // a_inv = Product of q_inv_table
-                let mut a_inv = 1u64;
+                // a_inv = Product of q_i mod p, then compute modular inverse
+                let mut a_mod = 1u64;
                 for i in 0..s {
-                    a_inv = (a_inv * (self.q_inv_table[q_indices[i]][j] as u64)) % (p as u64);
+                    a_mod = (a_mod * (self.fb[q_indices[i]] as u64)) % (p as u64);
                 }
-                a_inv_p[j] = a_inv as u32;
+                let a_inv_u64 = mod_inverse_u32(a_mod as i64, p as i64) as u64;
+                a_inv_p[j] = a_inv_u64 as u32;
 
                 let b_mod = b_val % p_int;
                 let b_mod_u64 = b_mod.as_limbs()[0];
@@ -305,16 +319,16 @@ impl SiqsWorker {
                 let x1_num = (r_j + p as u64 - b_mod_u64) % (p as u64);
                 let x2_num = ((p as u64) * 2 - r_j - b_mod_u64) % (p as u64);
 
-                x1_p[j] = ((a_inv * x1_num) % (p as u64)) as u32;
-                x2_p[j] = ((a_inv * x2_num) % (p as u64)) as u32;
-                
-                x1_p[j] = (x1_p[j] + (self.m as u32)) % p;
-                x2_p[j] = (x2_p[j] + (self.m as u32)) % p;
+                let x1_val = ((a_inv_u64 * x1_num) % (p as u64)) as u32;
+                let x2_val = ((a_inv_u64 * x2_num) % (p as u64)) as u32;
+
+                x1_p[j] = (((x1_val as u64) + (self.m as u64)) % (p as u64)) as u32;
+                x2_p[j] = (((x2_val as u64) + (self.m as u64)) % (p as u64)) as u32;
 
                 for k in 1..s {
                     let db = (Int::from(2) * b_i_prime[k]) % p_int;
                     let db_u64 = db.as_limbs()[0];
-                    delta_x[k][j] = ((a_inv * db_u64) % (p as u64)) as u32;
+                    delta_x[k][j] = ((a_inv_u64 * db_u64) % (p as u64)) as u32;
                 }
             }
 
@@ -335,8 +349,8 @@ impl SiqsWorker {
                             if a_inv_p[j] == 0 { continue; }
                             let dx = delta_x[k][j];
                             let p = self.fb[j];
-                            x1_p[j] = (x1_p[j] + dx) % p;
-                            x2_p[j] = (x2_p[j] + dx) % p;
+                            x1_p[j] = (((x1_p[j] as u64) + (dx as u64)) % (p as u64)) as u32;
+                            x2_p[j] = (((x2_p[j] as u64) + (dx as u64)) % (p as u64)) as u32;
                         }
                     } else {
                         let add_val = (Int::from(2) * b_i_prime[k]) % a_val;
@@ -345,8 +359,8 @@ impl SiqsWorker {
                             if a_inv_p[j] == 0 { continue; }
                             let dx = delta_x[k][j];
                             let p = self.fb[j];
-                            x1_p[j] = if x1_p[j] >= dx { x1_p[j] - dx } else { x1_p[j] + p - dx };
-                            x2_p[j] = if x2_p[j] >= dx { x2_p[j] - dx } else { x2_p[j] + p - dx };
+                            x1_p[j] = if x1_p[j] >= dx { x1_p[j] - dx } else { ((x1_p[j] as u64 + p as u64) - dx as u64) as u32 };
+                            x2_p[j] = if x2_p[j] >= dx { x2_p[j] - dx } else { ((x2_p[j] as u64 + p as u64) - dx as u64) as u32 };
                         }
                     }
                 }
@@ -402,7 +416,7 @@ impl SiqsWorker {
                         };
                         let x_is_neg = i < self.m;
 
-                        let x_isize = (i as isize) - (self.m as isize);
+                        let x_i64 = (i as i64) - (self.m as i64);
                         
                         let (mut temp, val_sign_enum) = evaluate_polynomial(a_val, b_val, c_val, c_is_neg, x, x_is_neg);
                         let val_sign = if val_sign_enum == Sign::Positive { 1i32 } else { -1i32 };
@@ -422,7 +436,7 @@ impl SiqsWorker {
                             }
                             // Form relation
                             let rel_obj = Object::new();
-                            Reflect::set(&rel_obj, &JsValue::from_str("x"), &JsValue::from_str(&x_isize.to_string())).unwrap();
+                            Reflect::set(&rel_obj, &JsValue::from_str("x"), &JsValue::from_str(&x_i64.to_string())).unwrap();
                             Reflect::set(&rel_obj, &JsValue::from_str("A"), &JsValue::from_str(&a_val.to_string())).unwrap();
                             Reflect::set(&rel_obj, &JsValue::from_str("B"), &JsValue::from_str(&b_val.to_string())).unwrap();
                             Reflect::set(&rel_obj, &JsValue::from_str("sign"), &JsValue::from_f64(val_sign as f64)).unwrap();
@@ -442,7 +456,7 @@ impl SiqsWorker {
                                     factors.push(q_indices[k] as u32);
                                 }
                                 let rel_obj = Object::new();
-                                Reflect::set(&rel_obj, &JsValue::from_str("x"), &JsValue::from_str(&x_isize.to_string())).unwrap();
+                                Reflect::set(&rel_obj, &JsValue::from_str("x"), &JsValue::from_str(&x_i64.to_string())).unwrap();
                                 Reflect::set(&rel_obj, &JsValue::from_str("A"), &JsValue::from_str(&a_val.to_string())).unwrap();
                                 Reflect::set(&rel_obj, &JsValue::from_str("B"), &JsValue::from_str(&b_val.to_string())).unwrap();
                                 Reflect::set(&rel_obj, &JsValue::from_str("sign"), &JsValue::from_f64(val_sign as f64)).unwrap();
