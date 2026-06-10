@@ -7,11 +7,12 @@ export class WorkerContext {
         this.shouldStop = false;
         this.currentTaskId = null;
         this.currentSessionId = null;
-        this.lastYieldTime = Date.now();
         this.lastPhaseUpdate = 0;
         this.currentPhase = "";
         this.stopAckSent = false;
         this.wasmReadyPromise = null;
+        this.abortArray = null;
+        this.wasmInstance = null;
     }
 
     sendPhase(phase, detail, force) {
@@ -29,22 +30,22 @@ export class WorkerContext {
         }
     }
 
-    async yieldIfNeeded() {
-        let now = Date.now();
-        if (now - this.lastYieldTime > 300) {
-            this.lastYieldTime = now;
-            await new Promise(r => setTimeout(r, 0));
+    initAbortArray(buf) {
+        if (buf) {
+            this.abortArray = new Int32Array(buf);
         }
     }
 
-    async checkYieldAndStop(expectedTaskId) {
-        await this.yieldIfNeeded();
-        if (this.shouldStop || this.currentTaskId !== expectedTaskId) {
-            if (this.shouldStop && !this.stopAckSent) {
+    checkAbort() {
+        if (this.abortArray && Atomics.load(this.abortArray, 0) !== 0) {
+            this.shouldStop = true;
+        }
+        if (this.shouldStop) {
+            if (!this.stopAckSent) {
                 this.stopAckSent = true;
                 postMessage({ type: MSG_TYPE_STOP_ACK, workerId: this.workerId });
             }
-            return true; // Indicates we should stop
+            return true;
         }
         return false;
     }

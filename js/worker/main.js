@@ -36,7 +36,8 @@ if (typeof Symbol !== 'undefined' && !Symbol.dispose) {
 const PHASE_ECM_WASM = "ECM Phase (WASM)";
 
 // Load WASM
-let wasmReadyPromise = init().then(() => {
+let wasmReadyPromise = init().then((wasm) => {
+    ctx.wasmInstance = wasm;
     postMessage({ type: MSG_TYPE_WASM_READY, workerId: ctx.workerId });
 }).catch(console.error);
 
@@ -61,9 +62,11 @@ self.onmessage = async (e) => {
 async function handleInitCommand(data) {
     ctx.workerId = data.workerId;
     let sieveLimit = data.params.sieveLimit;
+    let abortBuffer = data.params.abortBuffer;
     
     try {
         await wasmReadyPromise;
+        ctx.initAbortArray(abortBuffer);
         ctx.sievedPrimes = sieve_primes_wasm(sieveLimit);
         postMessage(Messages.createLog(ctx.workerId, ctx.currentSessionId, "Core online & Primes sieved.", "sys"));
         postMessage({ type: MSG_TYPE_INIT_COMPLETE, workerId: ctx.workerId });
@@ -119,7 +122,7 @@ async function handleFactorizeCommand(data) {
         ];
 
         for (let strategy of pipeline) {
-            if (await ctx.checkYieldAndStop(M)) return;
+            if (ctx.checkAbort()) return;
             let result = await strategy();
             if (result === true) return; // True means factor found and handled
         }
@@ -159,7 +162,7 @@ async function runTrialDivisionStrategy(M, params, ctx) {
             postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), p.toString(), "Trial Division"));
             return true;
         }
-        if (await ctx.checkYieldAndStop(M)) return true;
+        if (ctx.checkAbort()) return true;
     }
     return false;
 }
@@ -168,7 +171,7 @@ async function runPollardP1Strategy(M, params, ctx) {
     if (params.p1Limit <= 0) return false;
     ctx.sendPhase("Pollard P-1 (WASM)", "Limit=" + params.p1Limit, true);
     
-    let factor = WasmAdapter.pollardP1(M, params.p1Limit, ctx.sievedPrimes);
+    let factor = WasmAdapter.pollardP1(M, params.p1Limit, ctx.sievedPrimes, ctx.workerId);
     if (factor) {
         postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "P-1 (WASM)"));
         return true;
@@ -180,7 +183,7 @@ async function runPollardRhoStrategy(M, params, ctx) {
     if (params.rhoLimit <= 0) return false;
     ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
     
-    let factor = WasmAdapter.pollardRho(M, params.rhoLimit);
+    let factor = WasmAdapter.pollardRho(M, params.rhoLimit, ctx.workerId);
     if (factor) {
         postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "Rho (WASM)"));
         return true;
@@ -197,7 +200,7 @@ async function runEcmStrategy(M, params, ctx) {
     let curves_run = 0;
 
     while (curves_run < params.maxCurves) {
-        if (ctx.shouldStop || ctx.currentTaskId !== M) return true;
+        if (ctx.checkAbort() || ctx.currentTaskId !== M) return true;
 
         let curves_to_run = Math.min(chunk_size, params.maxCurves - curves_run);
         ctx.sendPhase(PHASE_ECM_WASM, "Curves " + curves_run + " / " + params.maxCurves, true);
@@ -209,7 +212,7 @@ async function runEcmStrategy(M, params, ctx) {
         }
 
         curves_run += curves_to_run;
-        if (await ctx.checkYieldAndStop(M)) return true;
+        if (ctx.checkAbort()) return true;
     }
     return false;
 }

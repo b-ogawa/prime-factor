@@ -6,15 +6,15 @@ export const WasmAdapter = {
         let bytes = bigIntToBytesLE(bigIntNum);
         return is_prime_bpsw_bytes(bytes);
     },
-    pollardP1(bigIntNum, limit, sievedPrimes) {
+    pollardP1(bigIntNum, limit, sievedPrimes, workerId) {
         let bytes = bigIntToBytesLE(bigIntNum);
         let primesArr = new Uint32Array(sievedPrimes);
-        let factorBytes = pollard_p1_bytes(bytes, limit, primesArr);
+        let factorBytes = pollard_p1_bytes(bytes, limit, primesArr, workerId);
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
     },
-    pollardRho(bigIntNum, limit) {
+    pollardRho(bigIntNum, limit, workerId) {
         let bytes = bigIntToBytesLE(bigIntNum);
-        let factorBytes = pollard_brent_bytes(bytes, limit);
+        let factorBytes = pollard_brent_bytes(bytes, limit, workerId);
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
     },
     createEcmRunner(bigIntNum, b1) {
@@ -37,6 +37,10 @@ export const WasmAdapter = {
         let bBytes = bigIntToBytesLE(bBig);
         let aBytes = aBig ? bigIntToBytesLE(aBig) : new Uint8Array(0);
         let factorsArr = new Uint32Array(factors);
+        reducerWrapper.instance.add_relation(sign, xBytes, bBytes, aBytes, factorsArr);
+    },
+    addSiqsRelationRaw(reducerWrapper, sign, xBytes, bBytes, aBytes, factorsArr) {
+        if (!reducerWrapper || reducerWrapper.isFreed) return;
         reducerWrapper.instance.add_relation(sign, xBytes, bBytes, aBytes, factorsArr);
     },
     siqsReduceMatrix(reducerWrapper) {

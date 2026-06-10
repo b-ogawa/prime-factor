@@ -3,6 +3,7 @@ import { generateFactorBase, extGCDInverse, gcd, jacobi } from './math.js';
 import { WasmAdapter } from './wasm_adapter.js';
 import { MSG_CMD_SIQS_FACTORIZE } from './messages.js';
 import { store } from './store.js';
+import { bigIntToBytesLE, bytesToBigIntLE } from './math_utils.js';
 
 export class SIQSCoordinator extends EventEmitter {
     constructor() {
@@ -11,7 +12,7 @@ export class SIQSCoordinator extends EventEmitter {
         this.activeTarget = null;
         this.currentSessionId = null;
         this.FB = [];
-        this.relations = [];
+        this.relationsCount = 0;
         this.relationSignatures = new Set();
         this.startTime = null;
         this.targetCount = 0;
@@ -34,14 +35,12 @@ export class SIQSCoordinator extends EventEmitter {
         let sqrtLnN = Math.sqrt(lnN * Math.log(lnN));
 
         let fbSize = Math.round(Math.exp(0.32 * sqrtLnN + 0.2));
-        let baseM = Math.round(Math.exp(0.42 * sqrtLnN + 2.2));
-
-        // Modulate Sieve Interval based on device capability
-        let M = Math.round(baseM * this.tDevice);
+        
+        // Hardcode M to a cache-friendly constant (sieve length M*2 = 65536)
+        let M = 32768;
 
         // Safeguards
         fbSize = Math.max(50, Math.min(20000, fbSize));
-        M = Math.max(1000, Math.min(1000000, M));
 
         return { fbSize, M };
     }
@@ -80,7 +79,7 @@ export class SIQSCoordinator extends EventEmitter {
         this.active = true;
         this.activeTarget = N;
         this.currentSessionId = sessionId;
-        this.relations = [];
+        this.relationsCount = 0;
         this.relationSignatures = new Set();
         this.startTime = Date.now();
         this.isReducing = false;
@@ -127,102 +126,147 @@ export class SIQSCoordinator extends EventEmitter {
 
         if (!this.partialRelations) this.partialRelations = new Map();
 
-        // Check if it's a partial relation
-        if (data.rel.largePrime) {
-            let lp = data.rel.largePrime;
-            // Pair partial relations strictly with the same A to preserve mathematical correctness (A1*A2 = A^2)
-            let key = `${data.rel.A}_${lp}`;
+        let chunks = data.chunks;
+        if (!chunks) return;
+
+        for (let chunk of chunks) {
+            let view = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+            let relationsCount = view.getUint32(8, true);
+            let offset = 12;
+
+            for (let rIdx = 0; rIdx < relationsCount; rIdx++) {
+                if (!this.active) return;
+                let flags = view.getUint8(offset);
+                offset += 1;
+                
+                let is_partial = (flags & 1) === 1;
+                let sign = (flags & 2) === 2 ? 1 : -1;
+                
+                let x_i64 = view.getBigInt64(offset, true);
+                offset += 8;
+
+                let aBytes = new Uint8Array(chunk.buffer, chunk.byteOffset + offset, 32);
+                offset += 32;
+
+                let bBytes = new Uint8Array(chunk.buffer, chunk.byteOffset + offset, 32);
+                offset += 32;
+
+                let lpBytes = null;
+                if (is_partial) {
+                    lpBytes = new Uint8Array(chunk.buffer, chunk.byteOffset + offset, 32);
+                    offset += 32;
+                }
+
+                let factorsCountVal = view.getUint16(offset, true);
+                offset += 2;
+
+                let factors = new Uint32Array(chunk.buffer, chunk.byteOffset + offset, factorsCountVal);
+                offset += factorsCountVal * 4;
+
+                this.processSingleRelation(is_partial, sign, x_i64, aBytes, bBytes, lpBytes, factors, data.polyCount);
+            }
+        }
+    }
+
+    processSingleRelation(is_partial, sign, x_i64, aBytes, bBytes, lpBytes, factors, polyCount) {
+        if (is_partial) {
+            let lp = bytesToBigIntLE(lpBytes);
+            let A = bytesToBigIntLE(aBytes);
+            let key = `${A.toString()}_${lp.toString()}`;
+
             if (this.partialRelations.has(key)) {
                 let r1 = this.partialRelations.get(key);
-                let r2 = data.rel;
+                this.partialRelations.delete(key);
 
-                // Combine r1 and r2 into a full relation
                 let kNBig = BigInt(this.activeTarget) * this.k;
-                let L = BigInt(lp);
+                let u1 = (A * bytesToBigIntLE(r1.xBytes) + bytesToBigIntLE(r1.bBytes)) % kNBig;
+                let u2 = (A * (BigInt(x_i64) % kNBig + kNBig) % kNBig + bytesToBigIntLE(bBytes)) % kNBig;
 
-                let u1 = (BigInt(r1.A) * BigInt(r1.x) + BigInt(r1.B)) % kNBig;
-                if (u1 < 0n) u1 += kNBig;
-                let u2 = (BigInt(r2.A) * BigInt(r2.x) + BigInt(r2.B)) % kNBig;
-                if (u2 < 0n) u2 += kNBig;
-
-                let invLRes = extGCDInverse(L, kNBig);
+                let invLRes = extGCDInverse(lp, kNBig);
                 if (invLRes.success) {
                     let u_new = (u1 * u2) % kNBig;
                     u_new = (u_new * invLRes.value) % kNBig;
 
-                    let new_factors = [...r1.factors, ...r2.factors];
-                    let new_sign = r1.sign * r2.sign;
+                    let combinedFactors = new Uint32Array(r1.factors.length + factors.length);
+                    combinedFactors.set(r1.factors);
+                    combinedFactors.set(factors, r1.factors.length);
 
-                    // Add this synthesized relation
-                    let combinedRel = {
-                        x: u_new.toString(),
-                        A: "1", // Since u_new is already fully evaluated, we can just say x = u_new, A = 1, B = 0
-                        B: "0",
-                        sign: new_sign,
-                        factors: new_factors
-                    };
+                    let new_sign = r1.sign * sign;
+                    let uBytes = bigIntToBytesLE(u_new);
+                    let zeroBytes = new Uint8Array(32);
+                    let oneBytes = new Uint8Array(32); oneBytes[0] = 1;
 
-                    // Remove the partial
-                    this.partialRelations.delete(key);
+                    WasmAdapter.addSiqsRelationRaw(
+                        this.wasmReducer,
+                        new_sign,
+                        uBytes,
+                        zeroBytes,
+                        oneBytes,
+                        combinedFactors
+                    );
 
-                    // We recursively process this synthesized relation
-                    this.handleRelation({ target: data.target, sessionId: data.sessionId, rel: combinedRel, polyCount: data.polyCount });
+                    this.incrementRelationsCount(polyCount);
                 } else {
-                    // This means gcd(L, kNBig) > 1, so we found a factor!
-                    let g = gcd(L, BigInt(this.activeTarget));
+                    let g = gcd(lp, BigInt(this.activeTarget));
                     if (g > 1n && g < BigInt(this.activeTarget)) {
                         let f1 = g;
                         let f2 = BigInt(this.activeTarget) / g;
                         this.emit('log', `[SIQS SUCCESS!] Found factors via Large Prime collision gcd: ${f1.toString()} & ${f2.toString()}`, "success");
                         this.active = false;
                         this.emit('siqsSuccess', f1, f2);
-                        return;
                     }
                 }
             } else {
-                this.partialRelations.set(key, data.rel);
+                let xBytes = new Uint8Array(8);
+                new DataView(xBytes.buffer).setBigInt64(0, x_i64, true);
+
+                this.partialRelations.set(key, {
+                    sign: sign,
+                    xBytes: xBytes,
+                    bBytes: bBytes.slice(),
+                    factors: factors.slice()
+                });
             }
-            return;
+        } else {
+            let sig = `${x_i64}`;
+            if (!this.relationSignatures.has(sig)) {
+                this.relationSignatures.add(sig);
+
+                let kNBig = BigInt(this.activeTarget) * this.k;
+                let xBig = (BigInt(x_i64) % kNBig + kNBig) % kNBig;
+                let xBytes = bigIntToBytesLE(xBig);
+
+                WasmAdapter.addSiqsRelationRaw(
+                    this.wasmReducer,
+                    sign,
+                    xBytes,
+                    bBytes,
+                    aBytes,
+                    factors
+                );
+
+                this.incrementRelationsCount(polyCount);
+            }
+        }
+    }
+
+    incrementRelationsCount(polyCount) {
+        this.relationsCount++;
+        let speed = Math.round((this.relationsCount / Math.max(1, Date.now() - this.startTime)) * 1000);
+        
+        let now = Date.now();
+        let isTargetReached = this.relationsCount >= this.targetCount;
+        if (isTargetReached || now - this.lastProgressEmitTime >= this.progressThrottleMs) {
+            this.lastProgressEmitTime = now;
+            this.emit('siqsProgress', this.relationsCount, this.targetCount, polyCount, speed);
         }
 
-        // Use BigInt representation to form a stable signature
-        let sig = `${data.rel.x}-${data.rel.A}-${data.rel.B}`;
-        if (!this.relationSignatures.has(sig)) {
-            this.relationSignatures.add(sig);
-            this.relations.push(data.rel);
+        if (isTargetReached && !this.isReducing) {
+            this.isReducing = true;
+            this.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relationsCount}`, "sys");
+            this.emit('siqsStopWorkers');
 
-            // Add relation to WASM reducer
-            let nBig = BigInt(this.activeTarget);
-            let kNBig = nBig * this.k;
-            let xBig = BigInt(data.rel.x);
-            // Normalize x mod kN to avoid negative number serialization issues
-            xBig = (xBig % kNBig + kNBig) % kNBig;
-
-            WasmAdapter.addSiqsRelation(
-                this.wasmReducer,
-                data.rel.sign,
-                xBig,
-                BigInt(data.rel.B),
-                data.rel.A ? BigInt(data.rel.A) : null,
-                data.rel.factors
-            );
-
-            let speed = Math.round((this.relations.length / Math.max(1, Date.now() - this.startTime)) * 1000);
-            
-            let now = Date.now();
-            let isTargetReached = this.relations.length >= this.targetCount;
-            if (isTargetReached || now - this.lastProgressEmitTime >= this.progressThrottleMs) {
-                this.lastProgressEmitTime = now;
-                this.emit('siqsProgress', this.relations.length, this.targetCount, data.polyCount, speed);
-            }
-
-            if (isTargetReached && !this.isReducing) {
-                this.isReducing = true;
-                this.emit('log', `[SIQS] Relationship collection complete. Relations: ${this.relations.length}`, "sys");
-                this.emit('siqsStopWorkers');
-
-                setTimeout(() => this.reduceMatrix(), 10);
-            }
+            setTimeout(() => this.reduceMatrix(), 10);
         }
     }
 

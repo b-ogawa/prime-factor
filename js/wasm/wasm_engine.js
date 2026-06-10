@@ -118,8 +118,9 @@ export class SiqsWorker {
      * @param {Uint8Array} fb_r_bytes
      * @param {number} sieve_limit
      * @param {number} worker_id
+     * @param {number} core_count
      */
-    constructor(kn_bytes, fb_primes, fb_logs, fb_r_bytes, sieve_limit, worker_id) {
+    constructor(kn_bytes, fb_primes, fb_logs, fb_r_bytes, sieve_limit, worker_id, core_count) {
         const ptr0 = passArray8ToWasm0(kn_bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ptr1 = passArray32ToWasm0(fb_primes, wasm.__wbindgen_malloc);
@@ -128,7 +129,7 @@ export class SiqsWorker {
         const len2 = WASM_VECTOR_LEN;
         const ptr3 = passArray8ToWasm0(fb_r_bytes, wasm.__wbindgen_malloc);
         const len3 = WASM_VECTOR_LEN;
-        const ret = wasm.siqsworker_new(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, sieve_limit, worker_id);
+        const ret = wasm.siqsworker_new(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, sieve_limit, worker_id, core_count);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -137,14 +138,26 @@ export class SiqsWorker {
         return this;
     }
     /**
+     * @returns {number}
+     */
+    result_len() {
+        const ret = wasm.siqsworker_result_len(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {number}
+     */
+    result_ptr() {
+        const ret = wasm.siqsworker_result_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
      * @param {number} batch_size
-     * @returns {Uint8Array}
+     * @returns {number}
      */
     step(batch_size) {
         const ret = wasm.siqsworker_step(this.__wbg_ptr, batch_size);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
+        return ret >>> 0;
     }
 }
 if (Symbol.dispose) SiqsWorker.prototype[Symbol.dispose] = SiqsWorker.prototype.free;
@@ -163,12 +176,13 @@ export function is_prime_bpsw_bytes(n_bytes) {
 /**
  * @param {Uint8Array} n_bytes
  * @param {number} max_iters
+ * @param {number} worker_id
  * @returns {Uint8Array | undefined}
  */
-export function pollard_brent_bytes(n_bytes, max_iters) {
+export function pollard_brent_bytes(n_bytes, max_iters, worker_id) {
     const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.pollard_brent_bytes(ptr0, len0, max_iters);
+    const ret = wasm.pollard_brent_bytes(ptr0, len0, max_iters, worker_id);
     let v2;
     if (ret[0] !== 0) {
         v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
@@ -181,14 +195,15 @@ export function pollard_brent_bytes(n_bytes, max_iters) {
  * @param {Uint8Array} n_bytes
  * @param {number} b1
  * @param {Uint32Array} primes
+ * @param {number} worker_id
  * @returns {Uint8Array | undefined}
  */
-export function pollard_p1_bytes(n_bytes, b1, primes) {
+export function pollard_p1_bytes(n_bytes, b1, primes, worker_id) {
     const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray32ToWasm0(primes, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.pollard_p1_bytes(ptr0, len0, b1, ptr1, len1);
+    const ret = wasm.pollard_p1_bytes(ptr0, len0, b1, ptr1, len1, worker_id);
     let v3;
     if (ret[0] !== 0) {
         v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();

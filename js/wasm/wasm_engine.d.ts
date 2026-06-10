@@ -19,15 +19,17 @@ export class SiqsReducer {
 export class SiqsWorker {
     free(): void;
     [Symbol.dispose](): void;
-    constructor(kn_bytes: Uint8Array, fb_primes: Uint32Array, fb_logs: Uint8Array, fb_r_bytes: Uint8Array, sieve_limit: number, worker_id: number);
-    step(batch_size: number): Uint8Array;
+    constructor(kn_bytes: Uint8Array, fb_primes: Uint32Array, fb_logs: Uint8Array, fb_r_bytes: Uint8Array, sieve_limit: number, worker_id: number, core_count: number);
+    result_len(): number;
+    result_ptr(): number;
+    step(batch_size: number): number;
 }
 
 export function is_prime_bpsw_bytes(n_bytes: Uint8Array): boolean;
 
-export function pollard_brent_bytes(n_bytes: Uint8Array, max_iters: number): Uint8Array | undefined;
+export function pollard_brent_bytes(n_bytes: Uint8Array, max_iters: number, worker_id: number): Uint8Array | undefined;
 
-export function pollard_p1_bytes(n_bytes: Uint8Array, b1: number, primes: Uint32Array): Uint8Array | undefined;
+export function pollard_p1_bytes(n_bytes: Uint8Array, b1: number, primes: Uint32Array, worker_id: number): Uint8Array | undefined;
 
 export function run_micro_benchmark(): number;
 
@@ -38,8 +40,10 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_siqsworker_free: (a: number, b: number) => void;
-    readonly siqsworker_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
-    readonly siqsworker_step: (a: number, b: number) => [number, number];
+    readonly siqsworker_new: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number];
+    readonly siqsworker_result_len: (a: number) => number;
+    readonly siqsworker_result_ptr: (a: number) => number;
+    readonly siqsworker_step: (a: number, b: number) => number;
     readonly __wbg_siqsreducer_free: (a: number, b: number) => void;
     readonly is_prime_bpsw_bytes: (a: number, b: number) => number;
     readonly run_micro_benchmark: () => number;
@@ -50,8 +54,8 @@ export interface InitOutput {
     readonly __wbg_ecmrunner_free: (a: number, b: number) => void;
     readonly ecmrunner_new: (a: number, b: number, c: number) => number;
     readonly ecmrunner_run_curves: (a: number, b: number) => [number, number];
-    readonly pollard_brent_bytes: (a: number, b: number, c: number) => [number, number];
-    readonly pollard_p1_bytes: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly pollard_brent_bytes: (a: number, b: number, c: number, d: number) => [number, number];
+    readonly pollard_p1_bytes: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
