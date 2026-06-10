@@ -154,19 +154,98 @@ impl SiqsWorker {
         let mut q_indices = vec![0usize; s];
         
         for _batch in 0..batch_size {
-            // Pick s primes randomly to form A. We avoid duplicates.
-            let mut used = vec![false; fb_len];
+            // Dynamic construction of polynomial coefficient A ~ sqrt(2kN)/M
+            // Newton's method for U512 (DoubleInt) square root
+            let double_kn = DoubleInt::from(self.kn) * DoubleInt::from(2);
+            let mut sqrt_2kn = double_kn;
+            if double_kn > DoubleInt::ZERO {
+                let mut y = (sqrt_2kn + DoubleInt::from(1)) >> 1;
+                while y < sqrt_2kn {
+                    sqrt_2kn = y;
+                    y = (sqrt_2kn + double_kn / sqrt_2kn) >> 1;
+                }
+            }
+            let target_a = sqrt_2kn / DoubleInt::from(self.m);
+
+            // Estimate target size of each prime q_i ~ target_a ^ (1/s)
+            let l_t = 512 - target_a.leading_zeros();
+            let l_s = l_t / s;
+            let target_q = if l_s >= 32 {
+                u32::MAX
+            } else {
+                1u32 << l_s
+            };
+
+            // Binary search in self.fb for target_q
+            let mut opt_idx = self.fb.binary_search(&target_q).unwrap_or_else(|x| x);
+            if opt_idx >= fb_len {
+                opt_idx = fb_len - 1;
+            }
+
             let start_idx = core::cmp::max(10, fb_len / 10);
-            for i in 0..s {
+            let w = 40;
+            let mut min_idx = if opt_idx > w { opt_idx - w } else { start_idx };
+            if min_idx < start_idx { min_idx = start_idx; }
+            let mut max_idx = opt_idx + w;
+            if max_idx >= fb_len { max_idx = fb_len - 1; }
+
+            if max_idx - min_idx + 1 < s {
+                min_idx = start_idx;
+                max_idx = fb_len - 1;
+            }
+
+            let mut used = vec![false; fb_len];
+            let mut a_prev = DoubleInt::from(1);
+            for i in 0..(s - 1) {
                 loop {
-                    let r = (self.prng.next() as usize % (fb_len - start_idx)) + start_idx;
+                    let r = (self.prng.next() as usize % (max_idx - min_idx + 1)) + min_idx;
                     if !used[r] {
                         used[r] = true;
                         q_indices[i] = r;
+                        a_prev = a_prev * DoubleInt::from(self.fb[r]);
                         break;
                     }
                 }
             }
+
+            let target_rem = if target_a > a_prev {
+                let rem = target_a / a_prev;
+                let limbs = rem.as_limbs();
+                if limbs[1] > 0 || limbs[2] > 0 || limbs[3] > 0 || limbs[4] > 0 || limbs[5] > 0 || limbs[6] > 0 || limbs[7] > 0 {
+                    u32::MAX
+                } else {
+                    limbs[0] as u32
+                }
+            } else {
+                2u32
+            };
+
+            let mut last_idx = self.fb.binary_search(&target_rem).unwrap_or_else(|x| x);
+            if last_idx >= fb_len {
+                last_idx = fb_len - 1;
+            }
+            if last_idx < start_idx {
+                last_idx = start_idx;
+            }
+
+            let mut best_r = last_idx;
+            let mut best_diff = i64::MAX;
+            for offset in 0..100 {
+                for sign in &[-1, 1] {
+                    let r_cand = (last_idx as isize + offset * sign) as usize;
+                    if r_cand >= start_idx && r_cand < fb_len && !used[r_cand] {
+                        let diff = (self.fb[r_cand] as i64 - target_rem as i64).abs();
+                        if diff < best_diff {
+                            best_diff = diff;
+                            best_r = r_cand;
+                        }
+                    }
+                }
+                if best_diff == 0 { break; }
+            }
+
+            q_indices[s - 1] = best_r;
+            used[best_r] = true;
 
             let mut a_val = Int::from(1);
             for i in 0..s {

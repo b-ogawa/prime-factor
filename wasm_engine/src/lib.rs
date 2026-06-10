@@ -358,7 +358,8 @@ pub fn is_prime_bpsw_bytes(n_bytes: &[u8]) -> bool {
     let bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37];
     for &b in &bases {
         let b_int = Int::from(b);
-        if n <= b_int { break; }
+        if n == b_int { return true; }
+        if n < b_int { return false; }
         if !miller_rabin_base_mont(n, b_int, &mont) { return false; }
     }
 
