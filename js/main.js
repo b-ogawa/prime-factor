@@ -1,6 +1,7 @@
 import { UIController } from './core/ui.js';
 import { FactorizationEngine } from './core/engine.js';
 import init from './wasm/wasm_engine.js';
+import { WasmAdapter } from './core/wasm_adapter.js';
 import { store, ActionTypes } from './core/store.js';
 import { MicroBenchmark } from './core/benchmark.js';
 
@@ -9,7 +10,8 @@ let ui;
 
 window.onload = async () => {
     // Initialize WASM module on the main thread for SIQS Coordinator
-    await init();
+    let wasm = await init();
+    WasmAdapter.wasm = wasm;
 
     // Run micro-benchmark to calculate tDevice for the hardware profile
     let tDevice = 1.0;

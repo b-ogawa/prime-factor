@@ -15,8 +15,8 @@ export const MSG_TYPE_RELATION_FOUND = "RELATION_FOUND";
 export const MSG_TYPE_STOP_ACK = "STOP_ACK";
 
 export const Messages = {
-    createInit(workerId, sieveLimit, abortBuffer) {
-        return { cmd: MSG_CMD_INIT, workerId, params: { sieveLimit, abortBuffer } };
+    createInit(workerId, sieveLimit, sab) {
+        return { cmd: MSG_CMD_INIT, workerId, params: { sieveLimit, sab } };
     },
     createStop() {
         return { cmd: MSG_CMD_STOP };

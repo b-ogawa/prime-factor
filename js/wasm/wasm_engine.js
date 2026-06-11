@@ -1,5 +1,17 @@
 /* @ts-self-types="./wasm_engine.d.ts" */
 
+/**
+ * @enum {0 | 1 | 2 | 3 | 4 | 5}
+ */
+export const ActionType = Object.freeze({
+    Idle: 0, "0": "Idle",
+    Complete: 1, "1": "Complete",
+    LocalFactor: 2, "2": "LocalFactor",
+    StartSiqs: 3, "3": "StartSiqs",
+    StartEcm: 4, "4": "StartEcm",
+    Wait: 5, "5": "Wait",
+});
+
 export class EcmRunner {
     __destroy_into_raw() {
         const ptr = this.__wbg_ptr;
@@ -38,6 +50,224 @@ export class EcmRunner {
     }
 }
 if (Symbol.dispose) EcmRunner.prototype[Symbol.dispose] = EcmRunner.prototype.free;
+
+export class FactorizationSession {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        FactorizationSessionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_factorizationsession_free(ptr, 0);
+    }
+    /**
+     * @param {string} target_str
+     * @returns {boolean}
+     */
+    factor_locally(target_str) {
+        const ptr0 = passStringToWasm0(target_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.factorizationsession_factor_locally(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * @returns {number}
+     */
+    get_available_buffer() {
+        const ret = wasm.factorizationsession_get_available_buffer(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @param {number} slot_id
+     * @returns {number}
+     */
+    get_buffer_ptr(slot_id) {
+        const ret = wasm.factorizationsession_get_buffer_ptr(this.__wbg_ptr, slot_id);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    get_current_target() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.factorizationsession_get_current_target(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {string}
+     */
+    get_factors_json() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.factorizationsession_get_factors_json(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get_metrics_ptr() {
+        const ret = wasm.factorizationsession_get_metrics_ptr(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {ActionType}
+     */
+    get_next_action() {
+        const ret = wasm.factorizationsession_get_next_action(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get_siqs_fb_logs() {
+        const ret = wasm.factorizationsession_get_siqs_fb_logs(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint32Array}
+     */
+    get_siqs_fb_primes() {
+        const ret = wasm.factorizationsession_get_siqs_fb_primes(this.__wbg_ptr);
+        var v1 = getArrayU32FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    get_siqs_fb_r() {
+        const ret = wasm.factorizationsession_get_siqs_fb_r(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {string}
+     */
+    get_siqs_kn() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.factorizationsession_get_siqs_kn(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @returns {number}
+     */
+    get_siqs_m() {
+        const ret = wasm.factorizationsession_get_siqs_m(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @returns {string}
+     */
+    get_unresolved_json() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.factorizationsession_get_unresolved_json(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
+     * @param {string} n_str
+     */
+    constructor(n_str) {
+        const ptr0 = passStringToWasm0(n_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.factorizationsession_new(ptr0, len0);
+        this.__wbg_ptr = ret;
+        FactorizationSessionFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @param {number} slot_id
+     */
+    release_buffer(slot_id) {
+        wasm.factorizationsession_release_buffer(this.__wbg_ptr, slot_id);
+    }
+    /**
+     * @param {string} target_str
+     * @returns {ActionType}
+     */
+    report_exhausted(target_str) {
+        const ptr0 = passStringToWasm0(target_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.factorizationsession_report_exhausted(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * @param {string} target_str
+     * @param {string} factor_str
+     * @returns {ActionType}
+     */
+    report_factor(target_str, factor_str) {
+        const ptr0 = passStringToWasm0(target_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(factor_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.factorizationsession_report_factor(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret;
+    }
+    /**
+     * @param {string} target_str
+     * @returns {ActionType}
+     */
+    report_prime(target_str) {
+        const ptr0 = passStringToWasm0(target_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.factorizationsession_report_prime(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * @returns {string | undefined}
+     */
+    siqs_reduce_matrix() {
+        const ret = wasm.factorizationsession_siqs_reduce_matrix(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]).slice();
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * @param {number} slot_id
+     * @param {number} length
+     * @returns {ActionType}
+     */
+    submit_worker_result(slot_id, length) {
+        const ret = wasm.factorizationsession_submit_worker_result(this.__wbg_ptr, slot_id, length);
+        return ret;
+    }
+}
+if (Symbol.dispose) FactorizationSession.prototype[Symbol.dispose] = FactorizationSession.prototype.free;
 
 export class SiqsReducer {
     __destroy_into_raw() {
@@ -257,6 +487,10 @@ function __wbg_get_imports() {
             const ret = arg0.call(arg1, arg2);
             return ret;
         }, arguments); },
+        __wbg_check_abort_b8a7c1f6d5fccf2a: function() {
+            const ret = check_abort();
+            return ret;
+        },
         __wbg_crypto_38df2bab126b63dc: function(arg0) {
             const ret = arg0.crypto;
             return ret;
@@ -347,6 +581,9 @@ function __wbg_get_imports() {
 const EcmRunnerFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_ecmrunner_free(ptr, 1));
+const FactorizationSessionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_factorizationsession_free(ptr, 1));
 const SiqsReducerFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_siqsreducer_free(ptr, 1));
@@ -417,6 +654,43 @@ function passArray8ToWasm0(arg, malloc) {
     return ptr;
 }
 
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
 function takeFromExternrefTable0(idx) {
     const value = wasm.__wbindgen_externrefs.get(idx);
     wasm.__externref_table_dealloc(idx);
@@ -435,6 +709,19 @@ function decodeText(ptr, len) {
         numBytesDecoded = len;
     }
     return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
 }
 
 let WASM_VECTOR_LEN = 0;

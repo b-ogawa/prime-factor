@@ -1,7 +1,8 @@
-import { is_prime_bpsw_bytes, pollard_p1_bytes, pollard_brent_bytes, EcmRunner, SiqsReducer, run_micro_benchmark } from '../wasm/wasm_engine.js';
+import { is_prime_bpsw_bytes, pollard_p1_bytes, pollard_brent_bytes, EcmRunner, run_micro_benchmark, FactorizationSession, ActionType } from '../wasm/wasm_engine.js';
 import { bigIntToBytesLE, bytesToBigIntLE } from './math_utils.js';
  
 export const WasmAdapter = {
+    wasm: null,
     isPrime(bigIntNum) {
         let bytes = bigIntToBytesLE(bigIntNum);
         return is_prime_bpsw_bytes(bytes);
@@ -25,35 +26,13 @@ export const WasmAdapter = {
         let factorBytes = runner.run_curves(curves_to_run);
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
     },
-    createSiqsReducer(nBig, knBig, fbArr) {
-        let n_bytes = bigIntToBytesLE(nBig);
-        let kn_bytes = bigIntToBytesLE(knBig);
-        let wasmInstance = new SiqsReducer(n_bytes, kn_bytes, fbArr);
-        return new SafeWasmWrapper(wasmInstance);
-    },
-    addSiqsRelation(reducerWrapper, sign, xBig, bBig, aBig, factors) {
-        if (!reducerWrapper || reducerWrapper.isFreed) return;
-        let xBytes = bigIntToBytesLE(xBig);
-        let bBytes = bigIntToBytesLE(bBig);
-        let aBytes = aBig ? bigIntToBytesLE(aBig) : new Uint8Array(0);
-        let factorsArr = new Uint32Array(factors);
-        reducerWrapper.instance.add_relation(sign, xBytes, bBytes, aBytes, factorsArr);
-    },
-    addSiqsRelationRaw(reducerWrapper, sign, xBytes, bBytes, aBytes, factorsArr) {
-        if (!reducerWrapper || reducerWrapper.isFreed) return;
-        reducerWrapper.instance.add_relation(sign, xBytes, bBytes, aBytes, factorsArr);
-    },
-    siqsReduceMatrix(reducerWrapper) {
-        if (!reducerWrapper || reducerWrapper.isFreed) return null;
-        let factorBytes = reducerWrapper.instance.reduce_matrix();
-        return factorBytes ? bytesToBigIntLE(factorBytes) : null;
-    },
-    withReducer(nBig, knBig, fbArr, callback) {
-        using reducer = this.createSiqsReducer(nBig, knBig, fbArr);
-        return callback(reducer);
-    },
+
     runMicroBenchmark() {
         return run_micro_benchmark();
+    },
+    createSession(nStr) {
+        let wasmInstance = new FactorizationSession(nStr);
+        return new SafeWasmWrapper(wasmInstance);
     }
 };
 
@@ -91,7 +70,7 @@ export class SafeWasmWrapper {
 }
 
 // Augment WASM class prototypes to support JS `using` syntax directly
-[EcmRunner, SiqsReducer].forEach(cls => {
+[EcmRunner, FactorizationSession].forEach(cls => {
     if (cls && cls.prototype && !cls.prototype[Symbol.dispose]) {
         cls.prototype[Symbol.dispose] = function() {
             this.free();

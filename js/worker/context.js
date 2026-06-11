@@ -1,4 +1,5 @@
 import { Messages, MSG_TYPE_STOP_ACK, MSG_TYPE_PHASE_UPDATE } from '../core/messages.js';
+import { SPSCRingBuffer } from '../core/spsc_ring_buffer.js';
 
 export class WorkerContext {
     constructor() {
@@ -11,7 +12,7 @@ export class WorkerContext {
         this.currentPhase = "";
         this.stopAckSent = false;
         this.wasmReadyPromise = null;
-        this.abortArray = null;
+        this.ringBuffer = null;
         this.wasmInstance = null;
     }
 
@@ -30,14 +31,14 @@ export class WorkerContext {
         }
     }
 
-    initAbortArray(buf) {
-        if (buf) {
-            this.abortArray = new Int32Array(buf);
+    initRingBuffer(sab) {
+        if (sab) {
+            this.ringBuffer = new SPSCRingBuffer(sab);
         }
     }
 
     checkAbort() {
-        if (this.abortArray && Atomics.load(this.abortArray, 0) !== 0) {
+        if (globalThis.check_abort() === 1) {
             this.shouldStop = true;
         }
         if (this.shouldStop) {
@@ -52,3 +53,10 @@ export class WorkerContext {
 }
 
 export const ctx = new WorkerContext();
+
+globalThis.check_abort = function() {
+    if (ctx.ringBuffer && ctx.ringBuffer.isAborted()) {
+        return 1;
+    }
+    return 0;
+};

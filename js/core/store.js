@@ -14,7 +14,6 @@ const initialState = {
         mode: 'auto',
         trialLimit: 10000,
         b1: 10000,
-        b2: 100000,
         curves: 100,
         p1Limit: 100000,
     },
@@ -28,7 +27,6 @@ const initialState = {
         activeTarget: null,
         factors: [],
         unresolved: [],
-        primes: [],
         startTime: null,
         elapsedTime: 0,
         coreStatus: {}, // workerId -> { phase, detail }

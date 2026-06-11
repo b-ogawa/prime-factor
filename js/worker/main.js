@@ -62,11 +62,11 @@ self.onmessage = async (e) => {
 async function handleInitCommand(data) {
     ctx.workerId = data.workerId;
     let sieveLimit = data.params.sieveLimit;
-    let abortBuffer = data.params.abortBuffer;
+    let sab = data.params.sab;
     
     try {
         await wasmReadyPromise;
-        ctx.initAbortArray(abortBuffer);
+        ctx.initRingBuffer(sab);
         ctx.sievedPrimes = sieve_primes_wasm(sieveLimit);
         postMessage(Messages.createLog(ctx.workerId, ctx.currentSessionId, "Core online & Primes sieved.", "sys"));
         postMessage({ type: MSG_TYPE_INIT_COMPLETE, workerId: ctx.workerId });

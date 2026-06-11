@@ -1,5 +1,6 @@
 import { EventEmitter } from './event_emitter.js';
 import { Messages, MSG_TYPE_INIT_COMPLETE, MSG_TYPE_WASM_READY } from './messages.js';
+import { SPSCRingBuffer } from './spsc_ring_buffer.js';
 
 export class WorkerPool extends EventEmitter {
     constructor(maxWorkers) {
@@ -9,12 +10,19 @@ export class WorkerPool extends EventEmitter {
         this.initCompleteCount = 0;
         this.activeWorkersCount = 0;
         this.currentSieveLimit = 10000;
-        this.abortBuffer = new SharedArrayBuffer(4);
-        this.abortArray = new Int32Array(this.abortBuffer);
+        this.workerSabs = [];
+        this.ringBuffers = [];
+
+        // Allocate SharedArrayBuffers and RingBuffers for each worker
+        for (let i = 0; i < this.maxWorkers; i++) {
+            const sab = new SharedArrayBuffer(1048576 + 16);
+            this.workerSabs.push(sab);
+            this.ringBuffers.push(new SPSCRingBuffer(sab));
+        }
     }
 
     resetAbort() {
-        Atomics.store(this.abortArray, 0, 0);
+        this.ringBuffers.forEach(rb => rb.reset());
     }
 
     init(sieveLimit) {
@@ -25,7 +33,7 @@ export class WorkerPool extends EventEmitter {
         for (let i = 0; i < this.maxWorkers; i++) {
             let w = new Worker('js/worker/main.js', { type: 'module' });
             w.onmessage = (e) => this.handleMessage(e);
-            w.postMessage(Messages.createInit(i, sieveLimit, this.abortBuffer));
+            w.postMessage(Messages.createInit(i, sieveLimit, this.workerSabs[i]));
             this.workers.push(w);
         }
     }
@@ -35,7 +43,7 @@ export class WorkerPool extends EventEmitter {
         this.initCompleteCount = 0;
         this.resetAbort();
         this.workers.forEach((w, i) => {
-            w.postMessage(Messages.createInit(i, sieveLimit, this.abortBuffer));
+            w.postMessage(Messages.createInit(i, sieveLimit, this.workerSabs[i]));
         });
     }
 
@@ -56,7 +64,7 @@ export class WorkerPool extends EventEmitter {
     }
 
     stopAll() {
-        Atomics.store(this.abortArray, 0, 1);
+        this.ringBuffers.forEach(rb => rb.setAbort());
         this.broadcast(Messages.createStop());
     }
 
