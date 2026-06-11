@@ -2,6 +2,11 @@ use wasm_bindgen::prelude::*;
 use crate::{Int, DoubleInt, Xoroshiro128PlusPlus, int_from_le_slice};
 use crate::ecm::ext_gcd_inverse_internal;
 
+#[wasm_bindgen]
+extern "C" {
+    fn check_abort() -> u32;
+}
+
 fn mod_inverse_u32(mut a: i64, mut m: i64) -> u32 {
     let m0 = m;
     let mut y = 0i64;
@@ -23,7 +28,6 @@ fn mod_inverse_u32(mut a: i64, mut m: i64) -> u32 {
 
 #[wasm_bindgen]
 pub struct SiqsWorker {
-    n: Int,
     fb: Vec<u32>,
     fb_log: Vec<u8>,
     fb_r: Vec<Int>,
@@ -85,7 +89,6 @@ impl SiqsWorker {
         }
 
         Ok(SiqsWorker {
-            n: kn,
             fb: fb_primes.to_vec(),
             fb_log: fb_logs.to_vec(),
             fb_r,
@@ -168,6 +171,10 @@ impl SiqsWorker {
         let mut q_indices = vec![0usize; s];
         
         for _batch in 0..batch_size {
+            if check_abort() == 1 {
+                self.result_buf.clear();
+                return 0;
+            }
             // Dynamic construction of polynomial coefficient A ~ sqrt(2kN)/M
             // Newton's method for U512 (DoubleInt) square root
             let double_kn = DoubleInt::from(self.kn) * DoubleInt::from(2);
@@ -403,7 +410,6 @@ impl SiqsWorker {
                     }
                 }
 
-                let log2_a = a_val.to_string().len() * 3; // Approx bit length. Real length: 256 - a_val.leading_zeros()
                 let log2_a_actual = 256 - a_val.leading_zeros();
                 let log2_m_approx = 31 - (self.m as u32).leading_zeros();
                 let buffer = 8 * (31 - self.fb.last().unwrap().leading_zeros()); // log2 of max p
@@ -462,7 +468,8 @@ impl SiqsWorker {
                                 relations_data.extend_from_slice(&x_i64.to_le_bytes());
                                 relations_data.extend_from_slice(&a_val.to_le_bytes::<32>());
                                 relations_data.extend_from_slice(&b_val.to_le_bytes::<32>());
-                                relations_data.extend_from_slice(&temp.to_le_bytes::<32>());
+                                let lp_u64 = temp.as_limbs()[0];
+                                relations_data.extend_from_slice(&lp_u64.to_le_bytes());
                                 
                                 let factors_len = factors.len() as u16;
                                 relations_data.extend_from_slice(&factors_len.to_le_bytes());

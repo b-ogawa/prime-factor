@@ -2,6 +2,11 @@ use crate::{gcd, int_from_le_slice, DoubleInt, Int, MontgomerySpace, Xoroshiro12
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
+extern "C" {
+    fn check_abort() -> u32;
+}
+
+#[wasm_bindgen]
 pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32], worker_id: usize) -> Option<Vec<u8>> {
     let n = int_from_le_slice(n_bytes);
     if n == Int::from(0) || n == Int::from(1) {
@@ -39,6 +44,9 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32], worker_id: us
 
     // Phase 1
     for &p in &p1_primes {
+        if check_abort() == 1 {
+            return None;
+        }
         let mut q = p as u64;
         let p_u64 = p as u64;
         while q.saturating_mul(p_u64) <= b1 as u64 {
@@ -181,6 +189,9 @@ pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize, worker_id: usize) -
     let mut iters = 0;
 
     while g == Int::from(1) {
+        if check_abort() == 1 {
+            return None;
+        }
         x = y;
         let mut k = 0;
         while k < r && g == Int::from(1) {
@@ -508,7 +519,6 @@ fn get_suyama_curve(sigma: Int, n: Int) -> Result<(Int, Int), Option<Int>> {
 #[wasm_bindgen]
 pub struct EcmRunner {
     n: Int,
-    b1: usize,
     mont: MontgomerySpace,
     prng: Xoroshiro128PlusPlus,
     phase1_powers: Vec<u64>,
@@ -571,7 +581,6 @@ impl EcmRunner {
 
         EcmRunner {
             n,
-            b1,
             mont,
             prng,
             phase1_powers,
@@ -588,6 +597,9 @@ impl EcmRunner {
         }
 
         for _ in 0..curves_to_run {
+            if check_abort() == 1 {
+                return None;
+            }
             let sigma = Int::from(get_secure_sigma(&mut self.prng));
             match get_suyama_curve(sigma, self.n) {
                 Ok((x0, a24)) => {
