@@ -81,7 +81,7 @@ export class SIQSCoordinator extends EventEmitter {
     }
 
     handleRelation(data) {
-        if (!this.active || this.currentSessionId !== data.sessionId) return;
+        if (!this.active || this.currentSessionId !== data.sessionId || this.activeTarget !== data.target) return;
         const workerId = data.workerId;
         const rb = this.workerPool.ringBuffers[workerId];
         if (!rb) return;
@@ -95,44 +95,55 @@ export class SIQSCoordinator extends EventEmitter {
                 break; // No available WASM buffer slots
             }
 
-            let ptr = this.session.instance.get_buffer_ptr(slotId);
-            let wasmMemory = WasmAdapter.getSlotBuffer(ptr, SLOT_SIZE);
+            let consumed = false;
+            try {
+                let ptr = this.session.instance.get_buffer_ptr(slotId);
+                let wasmMemory = WasmAdapter.getSlotBuffer(ptr, SLOT_SIZE);
 
-            let len = rb.readFrame(wasmMemory);
-            if (len === 0) {
-                this.session.instance.release_buffer(slotId);
-                break; // No complete frame in the ring buffer
-            }
+                let len = rb.readFrame(wasmMemory);
+                if (len === 0) {
+                    this.session.instance.release_buffer(slotId);
+                    consumed = true;
+                    break; // No complete frame in the ring buffer
+                }
 
-            let action = this.session.instance.submit_worker_result(slotId, len);
+                let action = this.session.instance.submit_worker_result(slotId, len);
+                consumed = true; // submit_worker_result inside WASM will release the slot
 
-            let metricsPtr = this.session.instance.get_metrics_ptr();
-            let metrics = WasmAdapter.getMetricsArray(metricsPtr, 8);
-            let relationsCount = metrics[1];
-            this.relationsCount = relationsCount;
-            let polyCount = metrics[2];
-            let speed = Math.round((relationsCount / Math.max(1, Date.now() - this.startTime)) * 1000);
+                let metricsPtr = this.session.instance.get_metrics_ptr();
+                let metrics = WasmAdapter.getMetricsArray(metricsPtr, 8);
+                let relationsCount = metrics[1];
+                this.relationsCount = relationsCount;
+                let polyCount = metrics[2];
+                let speed = Math.round((relationsCount / Math.max(1, Date.now() - this.startTime)) * 1000);
 
-            if (action === 1 || action === 2) {
-                this.active = false;
-                let factorsJson = this.session.instance.get_factors_json();
-                this.emit('siqsSuccessFactors', factorsJson);
-                return;
-            }
+                if (action === 1 || action === 2) {
+                    this.active = false;
+                    let factorsJson = this.session.instance.get_factors_json();
+                    this.emit('siqsSuccessFactors', factorsJson);
+                    return;
+                }
 
-            let now = Date.now();
-            let isTargetReached = relationsCount >= this.targetCount;
-            if (isTargetReached || now - this.lastProgressEmitTime >= this.progressThrottleMs) {
-                this.lastProgressEmitTime = now;
-                this.emit('siqsProgress', relationsCount, this.targetCount, polyCount, speed);
-            }
+                let now = Date.now();
+                let isTargetReached = relationsCount >= this.targetCount;
+                if (isTargetReached || now - this.lastProgressEmitTime >= this.progressThrottleMs) {
+                    this.lastProgressEmitTime = now;
+                    this.emit('siqsProgress', relationsCount, this.targetCount, polyCount, speed);
+                }
 
-            if (isTargetReached && !this.isReducing) {
-                this.isReducing = true;
-                this.emit('log', `[SIQS] Relationship collection complete. Relations: ${relationsCount}`, "sys");
-                this.emit('siqsStopWorkers');
+                if (isTargetReached && !this.isReducing) {
+                    this.isReducing = true;
+                    this.emit('log', `[SIQS] Relationship collection complete. Relations: ${relationsCount}`, "sys");
+                    this.emit('siqsStopWorkers');
 
-                setTimeout(() => this.reduceMatrix(), 10);
+                    setTimeout(() => this.reduceMatrix(), 10);
+                }
+            } catch (err) {
+                console.error("[SIQS] Error during slot memory processing:", err);
+                if (!consumed) {
+                    this.session.instance.release_buffer(slotId);
+                }
+                throw err;
             }
         }
     }

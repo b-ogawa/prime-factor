@@ -1,3 +1,8 @@
+// Define global check_abort fallback for main thread to prevent ReferenceError in WASM
+if (typeof globalThis.check_abort === 'undefined') {
+    globalThis.check_abort = () => 0;
+}
+
 import { UIController } from './ui/index.js';
 import { FactorizationEngine } from './orchestration/index.js';
 import init from './wasm/wasm_engine.js';

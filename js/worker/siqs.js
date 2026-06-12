@@ -35,23 +35,25 @@ export async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId,
         let polysSearchedThisStep = Number(view.getBigUint64(0, true));
         polys_searched += polysSearchedThisStep;
 
-        // Write directly to the SPSC Ring Buffer on SAB
-        if (!ctx.ringBuffer.write(resBytes)) {
-            break; // Aborted
-        }
-
         let now = performance.now();
         let hasRelation = byteLen > 12;
 
         // Send a lightweight signal to the main thread when a relation is found,
         // or periodically (every 50ms) to update the polyCount progress.
+        // Send signal BEFORE write to avoid deadlock in case write blocks.
         if (hasRelation || (now - lastSendTime >= 50)) {
             postMessage({
                 type: MSG_TYPE_RELATION_FOUND,
                 workerId: ctx.workerId,
-                sessionId: sessionId
+                sessionId: sessionId,
+                target: target_N
             });
             lastSendTime = now;
+        }
+
+        // Write directly to the SPSC Ring Buffer on SAB
+        if (!ctx.ringBuffer.write(resBytes)) {
+            break; // Aborted
         }
 
         if (now - lastPhaseTime >= 200) {
@@ -65,7 +67,8 @@ export async function runParallelSIQS(target_N, kN, params, ctx, expectedTaskId,
         postMessage({
             type: MSG_TYPE_RELATION_FOUND,
             workerId: ctx.workerId,
-            sessionId: sessionId
+            sessionId: sessionId,
+            target: target_N
         });
     }
 }

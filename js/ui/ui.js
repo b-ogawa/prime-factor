@@ -24,26 +24,38 @@ export class UIController {
         this.coreCountEl = document.getElementById('coreCount');
         this.coreActivityContainer = document.getElementById('coreActivityContainer');
 
-        this.chkDetailedMode = document.getElementById('chkDetailedMode');
-        this.detailedSettingsPanel = document.getElementById('detailedSettingsPanel');
+        this.tabBasic = document.getElementById('tabBasic');
+        this.tabAdvanced = document.getElementById('tabAdvanced');
+        this.panelBasic = document.getElementById('panelBasic');
+        this.panelAdvanced = document.getElementById('panelAdvanced');
 
-        if (this.chkDetailedMode && this.detailedSettingsPanel) {
-            this.chkDetailedMode.addEventListener('change', (e) => {
-                if (e.target.checked) {
-                    this.detailedSettingsPanel.classList.remove('hidden');
-                    this.detailedSettingsPanel.classList.add('grid');
-                } else {
-                    this.detailedSettingsPanel.classList.add('hidden');
-                    this.detailedSettingsPanel.classList.remove('grid');
-                }
-            });
+        if (this.tabBasic && this.tabAdvanced) {
+            this.tabBasic.addEventListener('click', () => this.switchTab('basic'));
+            this.tabAdvanced.addEventListener('click', () => this.switchTab('advanced'));
         }
+
+        this.activeTab = 'basic';
 
         this.lastState = null;
         this.renderRequested = false;
 
         // Subscribe to store state changes
         store.on('stateChanged', () => this.requestRender());
+    }
+
+    switchTab(tabName) {
+        this.activeTab = tabName;
+        if (tabName === 'basic') {
+            this.tabBasic.className = "px-4 py-2 text-xs font-bold text-emerald-600 border-b-2 border-emerald-600 transition-all uppercase tracking-wide";
+            this.tabAdvanced.className = "px-4 py-2 text-xs font-bold text-slate-400 border-b-2 border-transparent hover:text-slate-600 transition-all uppercase tracking-wide";
+            this.panelBasic.classList.remove('hidden');
+            this.panelAdvanced.classList.add('hidden');
+        } else {
+            this.tabAdvanced.className = "px-4 py-2 text-xs font-bold text-emerald-600 border-b-2 border-emerald-600 transition-all uppercase tracking-wide";
+            this.tabBasic.className = "px-4 py-2 text-xs font-bold text-slate-400 border-b-2 border-transparent hover:text-slate-600 transition-all uppercase tracking-wide";
+            this.panelAdvanced.classList.remove('hidden');
+            this.panelBasic.classList.add('hidden');
+        }
     }
 
     requestRender() {
@@ -283,13 +295,22 @@ export class UIController {
     getInputParams() {
         let inputStr = document.getElementById('numberInput').value.trim().replace(/\s/g, '');
         
-        let detailedMode = document.getElementById('chkDetailedMode')?.checked || false;
+        let detailedMode = this.activeTab === 'advanced';
         let parameterDerivation = document.getElementById('selParameterDerivation')?.value || 'dynamic';
         let manualM = parseInt(document.getElementById('paramManualM')?.value) || 65536;
         let concurrentPortfolio = document.getElementById('chkConcurrentPortfolio')?.checked || false;
-        let ecmCores = parseInt(document.getElementById('paramEcmCores')?.value) || 1;
-        let siqsCores = parseInt(document.getElementById('paramSiqsCores')?.value) || 3;
-        let lanczosExtraRelations = parseInt(document.getElementById('paramLanczosExtraRelations')?.value) || 15;
+        
+        // Cores
+        let brentCores = parseInt(document.getElementById('paramBrentCores')?.value) || 0;
+        let p1Cores = parseInt(document.getElementById('paramP1Cores')?.value) || 0;
+        let ecmCores = parseInt(document.getElementById('paramEcmCores')?.value) || 0;
+        let siqsCores = parseInt(document.getElementById('paramSiqsCores')?.value) || 0;
+
+        // Iterations
+        let brentIters = parseInt(document.getElementById('paramBrentIters')?.value) || 0;
+        let p1Iters = parseInt(document.getElementById('paramP1Iters')?.value) || 0;
+
+        let lanczosExtraRelations = 15; // default
         let sieveBlockSize = parseInt(document.getElementById('paramSieveBlockSize')?.value) || 32768;
 
         return {
@@ -304,8 +325,12 @@ export class UIController {
             parameterDerivation,
             manualM,
             concurrentPortfolio,
+            brentCores,
+            p1Cores,
             ecmCores,
             siqsCores,
+            brentIters,
+            p1Iters,
             lanczosExtraRelations,
             sieveBlockSize
         };

@@ -242,13 +242,22 @@ async function runTrialDivisionStrategy(M, params, ctx) {
  * @returns {Promise<boolean>} 因数が見つかれば true、見つからなければ false。
  */
 async function runPollardP1Strategy(M, params, ctx) {
-    if (params.p1Limit <= 0) return false;
-    ctx.sendPhase("Pollard P-1 (WASM)", "Limit=" + params.p1Limit, true);
+    if (params.p1Limit <= 0 || params.p1Iters === 0) return false;
     
-    let factor = WasmAdapter.pollardP1(M, params.p1Limit, ctx.sievedPrimes, ctx.workerId);
-    if (factor) {
-        postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "P-1 (WASM)"));
-        return true;
+    let iters = params.p1Iters || 1;
+    let isInfinite = iters === Infinity;
+    
+    for (let iter = 0; isInfinite || iter < iters; iter++) {
+        if (ctx.checkAbort()) return true;
+        let iterLabel = isInfinite ? `Iter ${iter+1}` : `Iter ${iter+1}/${iters}`;
+        ctx.sendPhase(`Pollard P-1 (${iterLabel})`, `Limit=${params.p1Limit}`, true);
+        
+        let factor = WasmAdapter.pollardP1(M, params.p1Limit, ctx.sievedPrimes, ctx.workerId + iter);
+        if (factor) {
+            postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "P-1"));
+            return true;
+        }
+        await new Promise(r => setTimeout(r, 0));
     }
     return false;
 }
@@ -264,13 +273,22 @@ async function runPollardP1Strategy(M, params, ctx) {
  * @returns {Promise<boolean>} 因数が見つかれば true、見つからなければ false。
  */
 async function runPollardRhoStrategy(M, params, ctx) {
-    if (params.rhoLimit <= 0) return false;
-    ctx.sendPhase("Pollard Rho (WASM)", "Limit=" + params.rhoLimit, true);
+    if (params.rhoLimit <= 0 || params.brentIters === 0) return false;
     
-    let factor = WasmAdapter.pollardRho(M, params.rhoLimit, ctx.workerId);
-    if (factor) {
-        postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "Rho (WASM)"));
-        return true;
+    let iters = params.brentIters || 1;
+    let isInfinite = iters === Infinity;
+    
+    for (let iter = 0; isInfinite || iter < iters; iter++) {
+        if (ctx.checkAbort()) return true;
+        let iterLabel = isInfinite ? `Iter ${iter+1}` : `Iter ${iter+1}/${iters}`;
+        ctx.sendPhase(`Brent (${iterLabel})`, `Limit=${params.rhoLimit}`, true);
+        
+        let factor = WasmAdapter.pollardRho(M, params.rhoLimit, ctx.workerId + iter);
+        if (factor) {
+            postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "Brent"));
+            return true;
+        }
+        await new Promise(r => setTimeout(r, 0));
     }
     return false;
 }
@@ -287,27 +305,31 @@ async function runPollardRhoStrategy(M, params, ctx) {
  * @returns {Promise<boolean>} 因数が見つかれば true、見つからなければ false。
  */
 async function runEcmStrategy(M, params, ctx) {
-    if (params.maxCurves <= 0) return false;
-    ctx.sendPhase(PHASE_ECM_WASM, "B1=" + params.b1 + ", Curves=" + params.maxCurves, true);
+    if (params.maxCurves <= 0 || params.ecmIters === 0) return false;
+    ctx.sendPhase(PHASE_ECM_WASM, "B1=" + params.b1, true);
 
-    using ecmRunner = WasmAdapter.createEcmRunner(M, params.b1);
+    let isInfinite = params.ecmIters === Infinity;
     let chunk_size = 10;
     let curves_run = 0;
 
-    while (curves_run < params.maxCurves) {
+    while (isInfinite || curves_run < params.maxCurves) {
         if (ctx.checkAbort() || ctx.currentTaskId !== M) return true;
 
-        let curves_to_run = Math.min(chunk_size, params.maxCurves - curves_run);
-        ctx.sendPhase(PHASE_ECM_WASM, "Curves " + curves_run + " / " + params.maxCurves, true);
+        using ecmRunner = WasmAdapter.createEcmRunner(M, params.b1);
+        let curves_to_run = isInfinite ? chunk_size : Math.min(chunk_size, params.maxCurves - curves_run);
+        
+        let progressStr = isInfinite ? `Curves ${curves_run}` : `Curves ${curves_run} / ${params.maxCurves}`;
+        ctx.sendPhase(PHASE_ECM_WASM, progressStr, true);
 
         let factor = WasmAdapter.ecmRunCurves(ecmRunner, curves_to_run);
         if (factor) {
-            postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "ECM (WASM)"));
+            postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "ECM"));
             return true;
         }
 
         curves_run += curves_to_run;
         if (ctx.checkAbort()) return true;
+        await new Promise(r => setTimeout(r, 0));
     }
     return false;
 }

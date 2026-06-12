@@ -194,30 +194,14 @@ export class SiqsWorker {
 export function is_prime_bpsw_bytes(n_bytes: Uint8Array): boolean;
 
 /**
- * Pollard's Rho（Brent版）法を用いて因数を探索する。
- *
- * # Preconditions
- * - `n_bytes` はターゲット値（奇数の合成数）を示すリトルエンディアンバイト配列。
- * - `max_iters` は探索のイテレーション上限。
- *
- * # Postconditions
- * - 因数が見つかった場合、その因数（リトルエンディアン32バイト配列）を `Some(Vec<u8>)` で返します。
- * - アボート、探索完了、あるいは最大回数に達しても見つからない場合は `None` を返します。
+ * JSのバイト配列を受け取り、Pollard's Rho（Brent版）法を用いて因数を探索するラッパー。
  */
-export function pollard_brent_bytes(n_bytes: Uint8Array, max_iters: number, worker_id: number): Uint8Array | undefined;
+export function pollard_brent_bytes(n_bytes: Uint8Array, max_iters: number, seed_offset: number): Uint8Array | undefined;
 
 /**
- * Pollard's P-1 法を用いて合成数の因数を探索する。
- *
- * # Preconditions
- * - `n_bytes` はターゲットとなる合成数を示す32バイト以下のリトルエンディアンバイト配列。
- * - `primes` は十分な個数の試し割り素数リスト。
- *
- * # Postconditions
- * - 因数が見つかった場合、その因数（リトルエンディアンバイト配列、32バイト）を `Some(Vec<u8>)` で返します。
- * - 因数が見つからない、またはアボートが検知された場合は `None` を返します。
+ * JSのバイト配列を受け取り、Pollard's P-1 法を用いて合成数の因数を探索するラッパー。
  */
-export function pollard_p1_bytes(n_bytes: Uint8Array, b1: number, primes: Uint32Array, worker_id: number): Uint8Array | undefined;
+export function pollard_p1_bytes(n_bytes: Uint8Array, b1: number, primes: Uint32Array, seed_offset: number): Uint8Array | undefined;
 
 /**
  * JavaScript側から呼び出され、CPUの演算能力を評価するためのマイクロベンチマーク。

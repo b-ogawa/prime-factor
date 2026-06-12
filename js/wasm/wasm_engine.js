@@ -517,24 +517,16 @@ export function is_prime_bpsw_bytes(n_bytes) {
 }
 
 /**
- * Pollard's Rho（Brent版）法を用いて因数を探索する。
- *
- * # Preconditions
- * - `n_bytes` はターゲット値（奇数の合成数）を示すリトルエンディアンバイト配列。
- * - `max_iters` は探索のイテレーション上限。
- *
- * # Postconditions
- * - 因数が見つかった場合、その因数（リトルエンディアン32バイト配列）を `Some(Vec<u8>)` で返します。
- * - アボート、探索完了、あるいは最大回数に達しても見つからない場合は `None` を返します。
+ * JSのバイト配列を受け取り、Pollard's Rho（Brent版）法を用いて因数を探索するラッパー。
  * @param {Uint8Array} n_bytes
  * @param {number} max_iters
- * @param {number} worker_id
+ * @param {number} seed_offset
  * @returns {Uint8Array | undefined}
  */
-export function pollard_brent_bytes(n_bytes, max_iters, worker_id) {
+export function pollard_brent_bytes(n_bytes, max_iters, seed_offset) {
     const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.pollard_brent_bytes(ptr0, len0, max_iters, worker_id);
+    const ret = wasm.pollard_brent_bytes(ptr0, len0, max_iters, seed_offset);
     let v2;
     if (ret[0] !== 0) {
         v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
@@ -544,27 +536,19 @@ export function pollard_brent_bytes(n_bytes, max_iters, worker_id) {
 }
 
 /**
- * Pollard's P-1 法を用いて合成数の因数を探索する。
- *
- * # Preconditions
- * - `n_bytes` はターゲットとなる合成数を示す32バイト以下のリトルエンディアンバイト配列。
- * - `primes` は十分な個数の試し割り素数リスト。
- *
- * # Postconditions
- * - 因数が見つかった場合、その因数（リトルエンディアンバイト配列、32バイト）を `Some(Vec<u8>)` で返します。
- * - 因数が見つからない、またはアボートが検知された場合は `None` を返します。
+ * JSのバイト配列を受け取り、Pollard's P-1 法を用いて合成数の因数を探索するラッパー。
  * @param {Uint8Array} n_bytes
  * @param {number} b1
  * @param {Uint32Array} primes
- * @param {number} worker_id
+ * @param {number} seed_offset
  * @returns {Uint8Array | undefined}
  */
-export function pollard_p1_bytes(n_bytes, b1, primes, worker_id) {
+export function pollard_p1_bytes(n_bytes, b1, primes, seed_offset) {
     const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray32ToWasm0(primes, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.pollard_p1_bytes(ptr0, len0, b1, ptr1, len1, worker_id);
+    const ret = wasm.pollard_p1_bytes(ptr0, len0, b1, ptr1, len1, seed_offset);
     let v3;
     if (ret[0] !== 0) {
         v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();

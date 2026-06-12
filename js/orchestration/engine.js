@@ -353,28 +353,77 @@ export class FactorizationEngine extends EventEmitter {
                 const config = store.getState().userConfig;
                 if (config.detailedMode && config.concurrentPortfolio) {
                     let totalCores = this.maxWorkers;
-                    let sCores = Math.max(1, Math.min(config.siqsCores, totalCores - 1));
-                    let eCores = totalCores - sCores;
                     
-                    let siqsWorkerIds = Array.from({length: sCores}, (_, i) => i);
-                    let ecmWorkerIds = Array.from({length: eCores}, (_, i) => sCores + i);
+                    let sCores = config.siqsCores || 0;
+                    let eCores = config.ecmCores || 0;
+                    let bCores = config.brentCores || 0;
+                    let p1Cores = config.p1Cores || 0;
                     
-                    this.emit('log', `[PORTFOLIO CONCURRENT] Spawning Portfolio Search. SIQS on Cores [${siqsWorkerIds.join(', ')}] | ECM on Cores [${ecmWorkerIds.join(', ')}]`, 'sys');
-                    
-                    // Start SIQS on the subset of workers
-                    this.siqsCoordinator.runPipeline(siqsTarget, siqsWorkerIds, this.currentSessionId, this.wasmSessionManager.session, this.workerPool);
-                    
-                    // Start ECM on the rest
-                    let testedB1 = this.wasmSessionManager.getEcmB1Tested(siqsTarget);
-                    let ecmParams = { ...this.currentParams };
-                    if (testedB1 > 0) {
-                        let nextB1 = Math.max(testedB1 * 2, ecmParams.b1 || 5000);
-                        ecmParams.b1 = nextB1;
+                    let totalRequested = sCores + eCores + bCores + p1Cores;
+                    if (totalRequested === 0) {
+                        sCores = Math.max(1, Math.floor(totalCores / 2));
+                        eCores = totalCores - sCores;
                     }
                     
-                    this.workerPool.broadcastToSubset(ecmWorkerIds, 
-                        Messages.createFactorize(siqsTarget, this.currentSessionId, ecmParams)
-                    );
+                    let allocated = 0;
+                    const assignCores = (requested) => {
+                        let assign = Math.min(requested, totalCores - allocated);
+                        allocated += assign;
+                        return assign;
+                    };
+                    
+                    let actualSiqsCores = assignCores(sCores);
+                    let actualEcmCores = assignCores(eCores);
+                    let actualBrentCores = assignCores(bCores);
+                    let actualP1Cores = assignCores(p1Cores);
+                    
+                    // Distribute any remaining cores to ECM
+                    if (allocated < totalCores) {
+                        actualEcmCores += (totalCores - allocated);
+                    }
+                    
+                    let coreIdx = 0;
+                    const getIds = (count) => {
+                        let ids = [];
+                        for(let i=0; i<count; i++) ids.push(coreIdx++);
+                        return ids;
+                    };
+                    
+                    let siqsWorkerIds = getIds(actualSiqsCores);
+                    let ecmWorkerIds = getIds(actualEcmCores);
+                    let brentWorkerIds = getIds(actualBrentCores);
+                    let p1WorkerIds = getIds(actualP1Cores);
+                    
+                    this.emit('log', `[PORTFOLIO CONCURRENT] Spawning target pipelines. SIQS: ${siqsWorkerIds.length}, ECM: ${ecmWorkerIds.length}, P-1: ${p1WorkerIds.length}, Brent: ${brentWorkerIds.length}`, 'sys');
+                    
+                    // Start SIQS
+                    if (siqsWorkerIds.length > 0) {
+                        this.siqsCoordinator.runPipeline(siqsTarget, siqsWorkerIds, this.currentSessionId, this.wasmSessionManager.session, this.workerPool);
+                    }
+                    
+                    let testedB1 = this.wasmSessionManager.getEcmB1Tested(siqsTarget);
+                    let baseParams = { ...this.currentParams };
+                    if (testedB1 > 0) {
+                        baseParams.b1 = Math.max(testedB1 * 2, baseParams.b1 || 5000);
+                    }
+                    
+                    // ECM Targets (Uses UI Iters, infinite ECM)
+                    if (ecmWorkerIds.length > 0) {
+                        let ecmParams = { ...baseParams, ecmIters: Infinity };
+                        this.workerPool.broadcastToSubset(ecmWorkerIds, Messages.createFactorize(siqsTarget, this.currentSessionId, ecmParams));
+                    }
+                    
+                    // P-1 Targets (Uses UI Iters for Brent, infinite P-1)
+                    if (p1WorkerIds.length > 0) {
+                        let p1Params = { ...baseParams, ecmIters: 0, p1Iters: Infinity };
+                        this.workerPool.broadcastToSubset(p1WorkerIds, Messages.createFactorize(siqsTarget, this.currentSessionId, p1Params));
+                    }
+                    
+                    // Brent Targets (Infinite Brent)
+                    if (brentWorkerIds.length > 0) {
+                        let brentParams = { ...baseParams, ecmIters: 0, p1Iters: 0, brentIters: Infinity };
+                        this.workerPool.broadcastToSubset(brentWorkerIds, Messages.createFactorize(siqsTarget, this.currentSessionId, brentParams));
+                    }
                 } else {
                     let allWorkerIds = Array.from({length: this.maxWorkers}, (_, i) => i);
                     this.siqsCoordinator.runPipeline(siqsTarget, allWorkerIds, this.currentSessionId, this.wasmSessionManager.session, this.workerPool);
@@ -383,13 +432,13 @@ export class FactorizationEngine extends EventEmitter {
             case ActionType.StartEcm:
                 let ecmTarget = this.wasmSessionManager.getCurrentTarget();
                 let testedB1 = this.wasmSessionManager.getEcmB1Tested(ecmTarget);
-                let ecmParams = { ...this.currentParams };
+                let ecmParams = { ...this.currentParams, ecmIters: Infinity };
                 if (testedB1 > 0) {
                     let nextB1 = Math.max(testedB1 * 2, ecmParams.b1 || 5000);
                     this.emit('log', `[METADATA RESUME] Node has previously tested B1 = ${testedB1}. Scaling next B1 to ${nextB1}`, 'info');
                     ecmParams.b1 = nextB1;
                 }
-                this.emit('log', `[BROADCASTING TASK] Dispatching ${ecmTarget} to BPSW/ECM Suite (B1=${ecmParams.b1 || this.currentParams.b1})...`, 'sys');
+                this.emit('log', `[BROADCASTING TASK] Dispatching ${ecmTarget} to ECM Suite Pipeline...`, 'sys');
                 
                 this.workerPool.activeWorkersCount = this.maxWorkers;
                 this.workerPool.broadcast(

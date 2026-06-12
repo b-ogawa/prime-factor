@@ -66,8 +66,11 @@ export class SPSCRingBuffer {
             }
 
             // Wait for Consumer (UI thread) to read and advance head
-            // Atomics.wait will block the worker thread efficiently
-            Atomics.wait(this.header, 0, head, 10);
+            // Timeout is set to 10ms to act as a heartbeat for abort checking
+            const waitResult = Atomics.wait(this.header, 0, head, 10);
+            if (waitResult === 'timed-out') {
+                continue;
+            }
         }
     }
 
