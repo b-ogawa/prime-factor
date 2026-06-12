@@ -1,4 +1,4 @@
-use crate::math::{DoubleInt, Int, MontgomerySpace, pow_mod};
+use crate::math::{DoubleInt, Int, MontgomerySpace, pow_mod, truncate_to_int};
 
 /// Checks if a number is a perfect square.
 /// 指定された数が完全平方数（`k^2 == n` となる整数 `k` が存在するか）を判定する。
@@ -158,8 +158,7 @@ fn strong_lucas_test(n: Int) -> bool {
         q_double += DoubleInt::from(n);
     }
     q_double >>= 2;
-    let q_val = Int::from_limbs((q_double % DoubleInt::from(n)).as_limbs()[..4].try_into().unwrap());
-    let q_val = q_val % n;
+    let q_val = truncate_to_int(q_double % DoubleInt::from(n)) % n;
 
     let mut u = Int::from(1);
     let mut v = p_val;
@@ -169,7 +168,7 @@ fn strong_lucas_test(n: Int) -> bool {
 
     for i in (0..d_bits - 1).rev() {
         let u_double = DoubleInt::from(u).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
-        let u_2k = Int::from_limbs(u_double.as_limbs()[..4].try_into().unwrap());
+        let u_2k = truncate_to_int(u_double);
 
         let v2 = DoubleInt::from(v).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
         let qk2 = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(2)) % DoubleInt::from(n);
@@ -178,10 +177,10 @@ fn strong_lucas_test(n: Int) -> bool {
         } else {
             v2 + DoubleInt::from(n) - qk2
         };
-        let v_2k = Int::from_limbs(v_2k_mod.as_limbs()[..4].try_into().unwrap());
+        let v_2k = truncate_to_int(v_2k_mod);
 
         let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
-        qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
+        qk = truncate_to_int(qk_sq);
 
         u = u_2k;
         v = v_2k;
@@ -194,10 +193,10 @@ fn strong_lucas_test(n: Int) -> bool {
             let mut u_next =
                 DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(u)) % DoubleInt::from(n);
             u_next = (u_next + DoubleInt::from(v)) % DoubleInt::from(n);
-            let mut u_next_int = Int::from_limbs(u_next.as_limbs()[..4].try_into().unwrap());
+            let mut u_next_int = truncate_to_int(u_next);
             if u_next_int.as_limbs()[0] & 1 == 1 {
                 u_next = (DoubleInt::from(u_next_int) + DoubleInt::from(n)) >> 1;
-                u_next_int = Int::from_limbs(u_next.as_limbs()[..4].try_into().unwrap());
+                u_next_int = truncate_to_int(u_next);
             } else {
                 u_next_int >>= 1;
             }
@@ -214,10 +213,10 @@ fn strong_lucas_test(n: Int) -> bool {
             let v_next_part2 =
                 DoubleInt::from(p_val).wrapping_mul(DoubleInt::from(v)) % DoubleInt::from(n);
             let mut v_next = (v_next_part1 + v_next_part2) % DoubleInt::from(n);
-            let mut v_next_int = Int::from_limbs(v_next.as_limbs()[..4].try_into().unwrap());
+            let mut v_next_int = truncate_to_int(v_next);
             if v_next_int.as_limbs()[0] & 1 == 1 {
                 v_next = (DoubleInt::from(v_next_int) + DoubleInt::from(n)) >> 1;
-                v_next_int = Int::from_limbs(v_next.as_limbs()[..4].try_into().unwrap());
+                v_next_int = truncate_to_int(v_next);
             } else {
                 v_next_int >>= 1;
             }
@@ -227,7 +226,7 @@ fn strong_lucas_test(n: Int) -> bool {
 
             let qk_q =
                 DoubleInt::from(qk).wrapping_mul(DoubleInt::from(q_val)) % DoubleInt::from(n);
-            qk = Int::from_limbs(qk_q.as_limbs()[..4].try_into().unwrap());
+            qk = truncate_to_int(qk_q);
         }
     }
 
@@ -243,10 +242,10 @@ fn strong_lucas_test(n: Int) -> bool {
         } else {
             v2 + DoubleInt::from(n) - qk2
         };
-        v = Int::from_limbs(v_next_mod.as_limbs()[..4].try_into().unwrap());
+        v = truncate_to_int(v_next_mod);
 
         let qk_sq = DoubleInt::from(qk).wrapping_mul(DoubleInt::from(qk)) % DoubleInt::from(n);
-        qk = Int::from_limbs(qk_sq.as_limbs()[..4].try_into().unwrap());
+        qk = truncate_to_int(qk_sq);
 
         if v == Int::from(0) {
             return true;
@@ -264,17 +263,7 @@ fn miller_rabin_base_mont(n: Int, base: Int, mont: &MontgomerySpace) -> bool {
     }
     let a = mont.transform(base);
 
-    let mut res = mont.transform(Int::from(1));
-    let mut base_pow = a;
-    let mut exp = d;
-    while exp > Int::from(0) {
-        if exp.as_limbs()[0] & 1 == 1 {
-            res = mont.mul(res, base_pow);
-        }
-        base_pow = mont.mul(base_pow, base_pow);
-        let new_exp = exp >> 1;
-        exp = new_exp;
-    }
+    let mut res = mont.pow_int(a, d);
 
     let mut x = res;
     let one = mont.transform(Int::from(1));

@@ -1,16 +1,17 @@
 pub mod algorithms;
-pub mod math;
-pub mod state;
 pub mod config;
 pub mod error;
+pub mod math;
+pub mod state;
 
+use rustc_hash::FxHashMap;
 use std::str::FromStr;
 use wasm_bindgen::prelude::*;
-use rustc_hash::FxHashMap;
 
-use crate::math::{Int, DoubleInt, gcd, int_from_le_slice, is_prime_bpsw, tonelli_shanks, jacobi};
-use crate::state::{NodeStatus, TreeNode, FbPrime, PendingPartialRelation, SiqsState};
-use crate::algorithms::ext_gcd_inverse_internal;
+use crate::math::{
+    ext_gcd_inverse, gcd, int_from_le_slice, is_prime_bpsw, jacobi, tonelli_shanks, DoubleInt, Int,
+};
+use crate::state::{FbPrime, NodeStatus, PendingPartialRelation, SiqsState, TreeNode};
 
 /// 因数分解セッションが現在メインスレッドおよびワーカーに要求しているアクションの種類。
 #[wasm_bindgen]
@@ -38,10 +39,10 @@ extern "C" {
 }
 
 /// JavaScript側から呼び出され、CPUの演算能力を評価するためのマイクロベンチマーク。
-/// 
+///
 /// # Preconditions
 /// 特になし。
-/// 
+///
 /// # Postconditions
 /// Montgomery空間での積算ループを50万回実行した結果の下位32ビットを返す。
 #[wasm_bindgen]
@@ -58,10 +59,10 @@ pub fn run_micro_benchmark() -> u32 {
 }
 
 /// Knuth-Schroeppelの基準に従い、二次ふるい法(SIQS)で最も有利な乗数 k (multiplier) を選択する。
-/// 
+///
 /// # Preconditions
 /// - `n` は素因数分解の対象となる合成数。
-/// 
+///
 /// # Postconditions
 /// - リターンされた `k` は、`kN` が小さな素数を法とする平方剰余になりやすい乗数。
 fn choose_multiplier(n: Int) -> Int {
@@ -69,7 +70,7 @@ fn choose_multiplier(n: Int) -> Int {
     let mut best_score = -1.0;
     let primes = crate::config::CHOOSE_MULTIPLIER_PRIMES;
     let mut selected_k = 1u64;
-    
+
     for &k in &multipliers {
         let k_int = Int::from(k);
         let kn = n * k_int;
@@ -101,17 +102,21 @@ fn choose_multiplier(n: Int) -> Int {
 }
 
 /// ターゲット数 `n` に対する二次ふるいのファクターベース（小さな平方剰余素数）を生成する。
-/// 
+///
 /// # Preconditions
 /// - `n` は平方剰余判定の基準値。
 /// - `target_size` は生成するファクターベースの素数の個数。
-/// 
+///
 /// # Postconditions
 /// - `jacobi(n, p) == 1` を満たし、Tonelli-Shanks法で `n` の平方根 `r (mod p)` が計算可能な素数 `p` が `target_size` 個格納されたベクタを返す。
 fn generate_factor_base(n: Int, target_size: usize) -> Vec<FbPrime> {
     let mut fb = Vec::with_capacity(target_size);
-    fb.push(FbPrime { p: 2, log: 8, r: Int::from(1) });
-    
+    fb.push(FbPrime {
+        p: 2,
+        log: 8,
+        r: Int::from(1),
+    });
+
     let mut candidate = 3u32;
     while fb.len() < target_size {
         let cand_int = Int::from(candidate);
@@ -134,17 +139,19 @@ fn generate_factor_base(n: Int, target_size: usize) -> Vec<FbPrime> {
 }
 
 /// 合成数の十進数桁数に基づき、SIQSでの最適なファクターベースのサイズを算出する。
-/// 
+///
 /// # Preconditions
 /// 特になし。
-/// 
+///
 /// # Postconditions
 /// - 最小 50、最大 20000 の範囲でファクターベース数を返す。
 fn get_siqs_params(digits: usize) -> usize {
     let params = crate::config::SiqsParams::default();
     let ln_n = (digits as f64) * 10.0f64.ln();
     let sqrt_ln_n = (ln_n * ln_n.ln()).sqrt();
-    let fb_size = (params.fb_size_coeff_a * sqrt_ln_n + params.fb_size_coeff_b).exp().round() as usize;
+    let fb_size = (params.fb_size_coeff_a * sqrt_ln_n + params.fb_size_coeff_b)
+        .exp()
+        .round() as usize;
     fb_size.max(params.fb_size_min).min(params.fb_size_max)
 }
 
@@ -177,7 +184,7 @@ pub struct SiqsReducer {
 #[wasm_bindgen]
 impl SiqsReducer {
     /// 新規のリデューサーを初期化する。
-    /// 
+    ///
     /// # Preconditions
     /// - `n_bytes` と `kn_bytes` はリトルエンディアン形式の有効な整数バイト列であること。
     /// - `fb_primes` はファクターベースとなる素数のリストであること。
@@ -194,7 +201,7 @@ impl SiqsReducer {
     }
 
     /// 個別のふるいプロセスで発見された関係式（Relation）を追加する。
-    /// 
+    ///
     /// # Preconditions
     /// - 各 `_bytes` 配列はリトルエンディアン形式の整数であること。
     /// - `factors` に含まれるインデックスは、コンストラクタで渡した `fb_primes` の有効範囲内であること。
@@ -415,10 +422,10 @@ pub struct FactorizationSession {
     nodes: Vec<TreeNode>,
     metrics: Vec<u32>,
     current_target_idx: Option<usize>,
-    
+
     slots: Vec<Vec<u8>>,
     slot_in_use: Vec<bool>,
-    
+
     current_siqs_state: Option<SiqsState>,
     current_reducer: Option<SiqsReducer>,
 }
@@ -426,19 +433,24 @@ pub struct FactorizationSession {
 #[wasm_bindgen]
 impl FactorizationSession {
     /// 新規の因数分解セッションを生成する。
-    /// 
+    ///
     /// # Preconditions
     /// - `n_str` は十進数の整数文字列であること。
-    /// 
+    ///
     /// # Postconditions
     /// - バラメータ `n_str` に応じた探索木ノードおよび8個の共有バッファスロット（各128KB）が初期化される。
     #[wasm_bindgen(constructor)]
     pub fn new(n_str: &str) -> Result<FactorizationSession, JsValue> {
-        let n = Int::from_str(n_str)
-            .map_err(|e| crate::error::FactorizationError::InvalidInput(format!("Failed to parse number: {}", e)))?;
-        
+        let n = Int::from_str(n_str).map_err(|e| {
+            crate::error::FactorizationError::InvalidInput(format!("Failed to parse number: {}", e))
+        })?;
+
         if n <= Int::from(1) {
-            return Err(crate::error::FactorizationError::InvalidInput(format!("Input N must be > 1, got {}", n_str)).into());
+            return Err(crate::error::FactorizationError::InvalidInput(format!(
+                "Input N must be > 1, got {}",
+                n_str
+            ))
+            .into());
         }
 
         let is_pr = is_prime_bpsw(n);
@@ -447,7 +459,7 @@ impl FactorizationSession {
         } else {
             NodeStatus::Unsolved
         };
-        
+
         let root = TreeNode {
             value: n,
             status,
@@ -477,10 +489,10 @@ impl FactorizationSession {
     }
 
     /// メトリクス情報領域の先頭メモリアドレスを取得する。
-    /// 
+    ///
     /// # Preconditions
     /// 特になし。
-    /// 
+    ///
     /// # Postconditions
     /// - `[solved_factors_count, relations_count, polys_searched]` 等の統計情報をマッピング可能なポインタを返す。
     pub fn get_metrics_ptr(&self) -> *const u32 {
@@ -488,10 +500,10 @@ impl FactorizationSession {
     }
 
     /// 計算結果書き込み用の未使用バッファスロット（インデックス）を取得する。
-    /// 
+    ///
     /// # Preconditions
     /// 特になし。
-    /// 
+    ///
     /// # Postconditions
     /// - 利用可能なスロットがあれば `0..=7` のインデックスを返し、対象スロットを `in_use` にマークする。
     /// - 空きスロットがない場合は `-1` を返す。
@@ -556,7 +568,10 @@ impl FactorizationSession {
                 ActionType::StartSiqs
             }
         } else {
-            let has_processing = self.nodes.iter().any(|n| n.status == NodeStatus::Processing);
+            let has_processing = self
+                .nodes
+                .iter()
+                .any(|n| n.status == NodeStatus::Processing);
             if has_processing {
                 ActionType::Wait
             } else {
@@ -571,13 +586,13 @@ impl FactorizationSession {
             None => return false,
         };
         let target = self.nodes[idx].value;
-        
+
         let k = choose_multiplier(target);
         let kn = target * k;
         let digits = kn.to_string().len();
         let fb_size = get_siqs_params(digits);
         let fb = generate_factor_base(kn, fb_size);
-        
+
         let fb_primes: Vec<u32> = fb.iter().map(|p| p.p).collect();
         let reducer = SiqsReducer {
             n: target,
@@ -585,9 +600,9 @@ impl FactorizationSession {
             fb: fb_primes,
             relations: Vec::new(),
         };
-        
+
         self.current_reducer = Some(reducer);
-        
+
         self.current_siqs_state = Some(SiqsState {
             target,
             k,
@@ -597,7 +612,7 @@ impl FactorizationSession {
             partial_relations: FxHashMap::default(),
             relation_signatures: std::collections::HashSet::new(),
         });
-        
+
         true
     }
 
@@ -608,7 +623,7 @@ impl FactorizationSession {
             String::new()
         }
     }
-    
+
     pub fn get_siqs_fb_primes(&self) -> Vec<u32> {
         if let Some(state) = &self.current_siqs_state {
             state.fb.iter().map(|p| p.p).collect()
@@ -681,7 +696,11 @@ impl FactorizationSession {
             self.nodes[idx].status = NodeStatus::Solved;
 
             let f1_is_prime = is_prime_bpsw(f1);
-            let f1_status = if f1_is_prime { NodeStatus::Solved } else { NodeStatus::Unsolved };
+            let f1_status = if f1_is_prime {
+                NodeStatus::Solved
+            } else {
+                NodeStatus::Unsolved
+            };
             let child1_idx = self.nodes.len();
             self.nodes.push(TreeNode {
                 value: f1,
@@ -695,7 +714,11 @@ impl FactorizationSession {
 
             if m2 > 0 {
                 let f2_is_prime = is_prime_bpsw(f2);
-                let f2_status = if f2_is_prime { NodeStatus::Solved } else { NodeStatus::Unsolved };
+                let f2_status = if f2_is_prime {
+                    NodeStatus::Solved
+                } else {
+                    NodeStatus::Unsolved
+                };
                 let child2_idx = self.nodes.len();
                 self.nodes.push(TreeNode {
                     value: f2,
@@ -779,7 +802,9 @@ impl FactorizationSession {
                 if is_prime_bpsw(n) {
                     factors.push(n);
                 } else {
-                    if let Some(f_bytes) = crate::algorithms::pollard_brent_bytes(&n.to_le_bytes::<32>(), 500000, 0) {
+                    if let Some(f_bytes) =
+                        crate::algorithms::pollard_brent_bytes(&n.to_le_bytes::<32>(), 500000, 0)
+                    {
                         let f = int_from_le_slice(&f_bytes);
                         queue.push(f);
                         queue.push(n / f);
@@ -802,15 +827,20 @@ impl FactorizationSession {
             self.nodes[idx].status = NodeStatus::Solved;
             let target_mult = self.nodes[idx].multiplicity;
             let parent_b1_tested = self.nodes[idx].ecm_b1_tested;
-            
-            let mut factor_counts: std::collections::HashMap<Int, u32> = std::collections::HashMap::new();
+
+            let mut factor_counts: std::collections::HashMap<Int, u32> =
+                std::collections::HashMap::new();
             for f in factors {
                 *factor_counts.entry(f).or_insert(0) += 1;
             }
 
             for (f, count) in factor_counts {
                 let f_is_prime = is_prime_bpsw(f);
-                let f_status = if f_is_prime { NodeStatus::Solved } else { NodeStatus::Unsolved };
+                let f_status = if f_is_prime {
+                    NodeStatus::Solved
+                } else {
+                    NodeStatus::Unsolved
+                };
                 let child_idx = self.nodes.len();
                 self.nodes.push(TreeNode {
                     value: f,
@@ -875,40 +905,55 @@ impl FactorizationSession {
             let is_partial = (flags & 1) == 1;
             let sign = if (flags & 2) == 2 { 1i32 } else { -1i32 };
 
-            if offset + 8 > data.len() { break; }
-            let x_i64 = i64::from_le_bytes(data[offset..offset+8].try_into().unwrap());
+            if offset + 8 > data.len() {
+                break;
+            }
+            let x_i64 = i64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
             offset += 8;
 
-            if offset + 32 > data.len() { break; }
-            let a_val = int_from_le_slice(&data[offset..offset+32]);
+            if offset + 32 > data.len() {
+                break;
+            }
+            let a_val = int_from_le_slice(&data[offset..offset + 32]);
             offset += 32;
 
-            if offset + 32 > data.len() { break; }
-            let b_val = int_from_le_slice(&data[offset..offset+32]);
+            if offset + 32 > data.len() {
+                break;
+            }
+            let b_val = int_from_le_slice(&data[offset..offset + 32]);
             offset += 32;
 
             let mut lp_u64 = 0u64;
             if is_partial {
-                if offset + 8 > data.len() { break; }
-                lp_u64 = u64::from_le_bytes(data[offset..offset+8].try_into().unwrap());
+                if offset + 8 > data.len() {
+                    break;
+                }
+                lp_u64 = u64::from_le_bytes(data[offset..offset + 8].try_into().unwrap());
                 offset += 8;
             }
 
-            if offset + 2 > data.len() { break; }
-            let factors_len = u16::from_le_bytes(data[offset..offset+2].try_into().unwrap()) as usize;
+            if offset + 2 > data.len() {
+                break;
+            }
+            let factors_len =
+                u16::from_le_bytes(data[offset..offset + 2].try_into().unwrap()) as usize;
             offset += 2;
 
-            if offset + factors_len * 4 > data.len() { break; }
+            if offset + factors_len * 4 > data.len() {
+                break;
+            }
             let mut factors = Vec::with_capacity(factors_len);
             for _ in 0..factors_len {
-                let f_idx = u32::from_le_bytes(data[offset..offset+4].try_into().unwrap());
+                let f_idx = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap());
                 factors.push(f_idx);
                 offset += 4;
             }
 
             if is_partial {
                 if let Some(r1) = state.partial_relations.remove(&lp_u64) {
-                    let term1 = (DoubleInt::from(r1.a) * DoubleInt::from(r1.x) + DoubleInt::from(r1.b)) % DoubleInt::from(kn);
+                    let term1 = (DoubleInt::from(r1.a) * DoubleInt::from(r1.x)
+                        + DoubleInt::from(r1.b))
+                        % DoubleInt::from(kn);
                     let term1_int = Int::from_limbs(term1.as_limbs()[..4].try_into().unwrap());
 
                     let x2_u256 = if x_i64 < 0 {
@@ -922,16 +967,21 @@ impl FactorizationSession {
                     } else {
                         Int::from(x_i64 as u64) % kn
                     };
-                    let term2 = (DoubleInt::from(a_val) * DoubleInt::from(x2_u256) + DoubleInt::from(b_val)) % DoubleInt::from(kn);
+                    let term2 = (DoubleInt::from(a_val) * DoubleInt::from(x2_u256)
+                        + DoubleInt::from(b_val))
+                        % DoubleInt::from(kn);
                     let term2_int = Int::from_limbs(term2.as_limbs()[..4].try_into().unwrap());
 
-                    let x_prod = (DoubleInt::from(term1_int) * DoubleInt::from(term2_int)) % DoubleInt::from(kn);
+                    let x_prod = (DoubleInt::from(term1_int) * DoubleInt::from(term2_int))
+                        % DoubleInt::from(kn);
                     let x_prod_int = Int::from_limbs(x_prod.as_limbs()[..4].try_into().unwrap());
 
                     let lp_int = Int::from(lp_u64);
-                    if let Some(lp_inv) = ext_gcd_inverse_internal(lp_int, kn) {
-                        let x_combined = (DoubleInt::from(x_prod_int) * DoubleInt::from(lp_inv)) % DoubleInt::from(kn);
-                        let x_combined_int = Int::from_limbs(x_combined.as_limbs()[..4].try_into().unwrap());
+                    if let Some(lp_inv) = ext_gcd_inverse(lp_int, kn) {
+                        let x_combined = (DoubleInt::from(x_prod_int) * DoubleInt::from(lp_inv))
+                            % DoubleInt::from(kn);
+                        let x_combined_int =
+                            Int::from_limbs(x_combined.as_limbs()[..4].try_into().unwrap());
 
                         let combined_factors = [r1.factors, factors].concat();
                         let new_sign = r1.sign * sign;
@@ -940,7 +990,10 @@ impl FactorizationSession {
                             new_sign,
                             &x_combined_int.to_le_bytes::<32>(),
                             &[0u8; 32],
-                            &[1u8, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                            &[
+                                1u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                                0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+                            ],
                             &combined_factors,
                         );
 
@@ -968,13 +1021,16 @@ impl FactorizationSession {
                     } else {
                         Int::from(x_i64 as u64) % kn
                     };
-                    state.partial_relations.insert(lp_u64, PendingPartialRelation {
-                        sign,
-                        x: x_u256,
-                        b: b_val,
-                        a: a_val,
-                        factors,
-                    });
+                    state.partial_relations.insert(
+                        lp_u64,
+                        PendingPartialRelation {
+                            sign,
+                            x: x_u256,
+                            b: b_val,
+                            a: a_val,
+                            factors,
+                        },
+                    );
                 }
             } else {
                 let sig = x_i64;
@@ -1014,7 +1070,8 @@ impl FactorizationSession {
     }
 
     fn merge_duplicates(&mut self) {
-        let mut solved_trees: std::collections::HashMap<Int, Vec<TreeNode>> = std::collections::HashMap::new();
+        let mut solved_trees: std::collections::HashMap<Int, Vec<TreeNode>> =
+            std::collections::HashMap::new();
 
         for i in 0..self.nodes.len() {
             if self.nodes[i].status == NodeStatus::Solved && !self.nodes[i].value.is_zero() {
@@ -1105,7 +1162,10 @@ impl FactorizationSession {
         let mut factor_count = 0;
         for i in 0..self.nodes.len() {
             let node = &self.nodes[i];
-            if node.status == NodeStatus::Solved && node.children.is_empty() && node.value > Int::from(1) {
+            if node.status == NodeStatus::Solved
+                && node.children.is_empty()
+                && node.value > Int::from(1)
+            {
                 factor_count += node.multiplicity;
             }
         }
@@ -1117,7 +1177,10 @@ impl FactorizationSession {
             let mut map: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
             for i in 0..self.nodes.len() {
                 let node = &self.nodes[i];
-                if node.status == NodeStatus::Solved && node.children.is_empty() && node.value > Int::from(1) {
+                if node.status == NodeStatus::Solved
+                    && node.children.is_empty()
+                    && node.value > Int::from(1)
+                {
                     let key = node.value.to_string();
                     *map.entry(key).or_insert(0) += node.multiplicity;
                 }
@@ -1150,7 +1213,7 @@ impl FactorizationSession {
 
 /// JSのバイト配列を受け取り、内部で `is_prime_bpsw` を呼び出して素数か判定する。
 /// JS側（WasmAdapter）との通信インターフェース。
-/// 
+///
 /// # Preconditions
 /// - `n_bytes` はリトルエンディアン形式の有効な整数バイト列。
 #[wasm_bindgen]
@@ -1160,10 +1223,10 @@ pub fn is_prime_bpsw_bytes(n_bytes: &[u8]) -> bool {
 }
 
 /// エラトステネスのふるいを用いて、指定された上限値 `max` までのすべての素数を列挙する。
-/// 
+///
 /// # Preconditions
 /// - `max` は 100,000,000 以下であること（メモリ保護のため自動的に上限が切り詰められます）。
-/// 
+///
 /// # Postconditions
 /// - 発見された素数を昇順に並べた `Vec<u32>` を返します。
 #[wasm_bindgen]
@@ -1198,40 +1261,29 @@ pub fn sieve_primes_wasm(mut max: usize) -> Vec<u32> {
     primes
 }
 
-/// Pollard's P-1 法を用いて合成数の因数を探索する。
-/// 
-/// # Preconditions
-/// - `n_bytes` はターゲットとなる合成数を示す32バイト以下のリトルエンディアンバイト配列。
-/// - `primes` は十分な個数の試し割り素数リスト。
-/// 
-/// # Postconditions
-/// - 因数が見つかった場合、その因数（リトルエンディアンバイト配列、32バイト）を `Some(Vec<u8>)` で返します。
-/// - 因数が見つからない、またはアボートが検知された場合は `None` を返します。
+/// JSのバイト配列を受け取り、Pollard's P-1 法を用いて合成数の因数を探索するラッパー。
 #[wasm_bindgen]
-pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32], worker_id: usize) -> Option<Vec<u8>> {
-    crate::algorithms::pollard_p1_bytes(n_bytes, b1, primes, worker_id)
+pub fn pollard_p1_bytes(
+    n_bytes: &[u8],
+    b1: usize,
+    primes: &[u32],
+    seed_offset: usize,
+) -> Option<Vec<u8>> {
+    crate::algorithms::pollard_p1_bytes(n_bytes, b1, primes, seed_offset)
 }
 
-/// Pollard's Rho（Brent版）法を用いて因数を探索する。
-/// 
-/// # Preconditions
-/// - `n_bytes` はターゲット値（奇数の合成数）を示すリトルエンディアンバイト配列。
-/// - `max_iters` は探索のイテレーション上限。
-/// 
-/// # Postconditions
-/// - 因数が見つかった場合、その因数（リトルエンディアン32バイト配列）を `Some(Vec<u8>)` で返します。
-/// - アボート、探索完了、あるいは最大回数に達しても見つからない場合は `None` を返します。
+/// JSのバイト配列を受け取り、Pollard's Rho（Brent版）法を用いて因数を探索するラッパー。
 #[wasm_bindgen]
-pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize, worker_id: usize) -> Option<Vec<u8>> {
-    crate::algorithms::pollard_brent_bytes(n_bytes, max_iters, worker_id)
+pub fn pollard_brent_bytes(n_bytes: &[u8], max_iters: usize, seed_offset: usize) -> Option<Vec<u8>> {
+    crate::algorithms::pollard_brent_bytes(n_bytes, max_iters, seed_offset)
 }
 
 /// 楕円曲線法（ECM）の計算プロセスを段階的に実行するためのランナーラッパー。
-/// 
+///
 /// # Preconditions
 /// - `n_bytes` は奇数の合成数（リトルエンディアンバイト配列）。
 /// - `b1` は第1段階限界値 B1。
-/// 
+///
 /// # Postconditions
 /// - 実行状態を保持する native EcmRunner インスタンスが初期化されます。
 #[wasm_bindgen]
@@ -1245,10 +1297,10 @@ impl EcmRunner {
     }
 
     /// 指定された回数（カーブ数）だけ、Suyamaの媒介変数を用いた楕円曲線法（Montgomery ladder 形式）を実行する。
-    /// 
+    ///
     /// # Preconditions
     /// - インスタンスが有効に初期化されていること。
-    /// 
+    ///
     /// # Postconditions
     /// - 因数が発見された場合、直ちに `Some(Vec<u8>)` （リトルエンディアン32バイト）を返します。
     /// - カーブを実行し終えても因数が見つからない、またはアボート要求が検知された場合は `None` を返します。
@@ -1258,7 +1310,7 @@ impl EcmRunner {
 }
 
 /// SIQSによるふるい落とし（Sieving）計算をスレッド個別に実行するためのワーカーラッパー。
-/// 
+///
 /// # Preconditions
 /// - `kn_bytes` はターゲット kN のリトルエンディアンバイト配列。
 /// - `fb_primes` はファクターベース素数配列。
@@ -1288,15 +1340,16 @@ impl SiqsWorker {
             sieve_limit,
             worker_id,
             core_count,
-        ).map_err(|e| JsValue::from_str(e))?;
+        )
+        .map_err(|e| JsValue::from_str(e))?;
         Ok(Self(worker))
     }
 
     /// 指定された多項式のバッチ数だけふるい落とし（Sieving）処理を実行し、結果をシリアライズバッファに書き込む。
-    /// 
+    ///
     /// # Preconditions
     /// - `batch_size > 0` であること。
-    /// 
+    ///
     /// # Postconditions
     /// - 処理中に `check_abort` が 1 を返した場合、処理を打ち切って直ちに `0` を返します。
     /// - 発見されたリレーションデータのバイトサイズを返します。
@@ -1309,4 +1362,3 @@ impl SiqsWorker {
         self.0.result_ptr()
     }
 }
-
