@@ -10,7 +10,7 @@ use crate::check_abort;
 /// # Postconditions
 /// - 因数が見つかった場合、その因数（リトルエンディアンバイト配列、32バイト）を `Some(Vec<u8>)` で返します。
 /// - 因数が見つからない、またはアボートが検知された場合は `None` を返します。
-pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32], seed_offset: usize) -> Option<Vec<u8>> {
+pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, b2_multiplier: usize, primes: &[u32], seed_offset: usize) -> Option<Vec<u8>> {
     let params = crate::config::EcmParams::default();
     let n = int_from_le_slice(n_bytes);
     if n == Int::from(0) || n == Int::from(1) {
@@ -26,7 +26,7 @@ pub fn pollard_p1_bytes(n_bytes: &[u8], b1: usize, primes: &[u32], seed_offset: 
     }
 
     let b1_big = Int::from(b1);
-    let b2_big = Int::from(b1 * params.p1_b2_multiplier);
+    let b2_big = Int::from(b1 * b2_multiplier);
 
     let mut p1_primes = Vec::new();
     let mut p2_primes = Vec::new();

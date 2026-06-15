@@ -1266,10 +1266,11 @@ pub fn sieve_primes_wasm(mut max: usize) -> Vec<u32> {
 pub fn pollard_p1_bytes(
     n_bytes: &[u8],
     b1: usize,
+    b2_multiplier: usize,
     primes: &[u32],
     seed_offset: usize,
 ) -> Option<Vec<u8>> {
-    crate::algorithms::pollard_p1_bytes(n_bytes, b1, primes, seed_offset)
+    crate::algorithms::pollard_p1_bytes(n_bytes, b1, b2_multiplier, primes, seed_offset)
 }
 
 /// JSのバイト配列を受け取り、Pollard's Rho（Brent版）法を用いて因数を探索するラッパー。
@@ -1292,8 +1293,8 @@ pub struct EcmRunner(crate::algorithms::EcmRunner);
 #[wasm_bindgen]
 impl EcmRunner {
     #[wasm_bindgen(constructor)]
-    pub fn new(n_bytes: &[u8], b1: usize) -> Self {
-        Self(crate::algorithms::EcmRunner::new(n_bytes, b1))
+    pub fn new(n_bytes: &[u8], b1: usize, b2_multiplier: usize) -> Self {
+        Self(crate::algorithms::EcmRunner::new(n_bytes, b1, b2_multiplier))
     }
 
     /// 指定された回数（カーブ数）だけ、Suyamaの媒介変数を用いた楕円曲線法（Montgomery ladder 形式）を実行する。

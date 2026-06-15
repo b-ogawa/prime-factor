@@ -292,7 +292,7 @@ pub(crate) fn is_prime_bpsw(n: Int) -> bool {
     if n == Int::from(2) || n == Int::from(3) || n == Int::from(5) || n == Int::from(7) {
         return true;
     }
-    if n.as_limbs()[0] % 2 == 0 || n.as_limbs()[0] % 3 == 0 || n.as_limbs()[0] % 5 == 0 {
+    if n.as_limbs()[0] % 2 == 0 || n % Int::from(3) == Int::from(0) || n % Int::from(5) == Int::from(0) {
         return false;
     }
 
@@ -325,3 +325,10 @@ pub(crate) fn is_prime_bpsw(n: Int) -> bool {
     true
 }
 // Extracted WASM FFI wrappers migrated to lib.rs
+
+#[test]
+fn test_second_prime() {
+    let n = crate::math::Int::from_str_radix("1431e0fae6d7217caa000013f", 16).unwrap();
+    assert!(is_prime_bpsw(n));
+}
+

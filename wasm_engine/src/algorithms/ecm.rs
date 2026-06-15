@@ -164,7 +164,7 @@ pub struct EcmRunner {
 
 impl EcmRunner {
     /// ECMの実行状態を初期化する。
-    pub fn new(n_bytes: &[u8], b1: usize) -> Self {
+    pub fn new(n_bytes: &[u8], b1: usize, b2_multiplier: usize) -> Self {
         let params = crate::config::EcmParams::default();
         let n = int_from_le_slice(n_bytes);
         
@@ -176,7 +176,7 @@ impl EcmRunner {
         let mont = MontgomerySpace::new(mont_n);
         let prng = Xoroshiro128PlusPlus::new();
 
-        let b2 = b1 * params.ecm_b2_multiplier;
+        let b2 = b1 * b2_multiplier;
         let mut sieved = vec![true; b2 + 1];
         let mut primes = Vec::new();
 

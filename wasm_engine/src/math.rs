@@ -107,8 +107,7 @@ impl MontgomerySpace {
         let mut res_int = truncate_to_int(res);
 
         if carry {
-            let (new_res, _sub_carry) = res_int.overflowing_sub(self.n);
-            res_int = new_res;
+            res_int = res_int.wrapping_sub(self.n);
         } else if res_int >= self.n {
             res_int = res_int - self.n;
         }
