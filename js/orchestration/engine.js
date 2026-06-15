@@ -402,26 +402,45 @@ export class FactorizationEngine extends EventEmitter {
                     }
                     
                     let testedB1 = this.wasmSessionManager.getEcmB1Tested(siqsTarget);
-                    let baseParams = { ...this.currentParams };
-                    if (testedB1 > 0) {
-                        baseParams.b1 = Math.max(testedB1 * 2, baseParams.b1 || 5000);
-                    }
                     
                     // ECM Targets (Uses UI Iters, infinite ECM)
                     if (ecmWorkerIds.length > 0) {
-                        let ecmParams = { ...baseParams, ecmIters: Infinity };
+                        let ecmParams = {
+                            ...this.currentParams,
+                            ecmIters: Infinity,
+                            brentIters: config.ecmWorkerConfig.brentIters,
+                            rhoLimit: config.ecmWorkerConfig.brentLimit,
+                            p1Iters: config.ecmWorkerConfig.p1Iters,
+                            p1Limit: config.ecmWorkerConfig.p1Limit,
+                            b1: testedB1 > 0 ? Math.max(testedB1 * 2, config.ecmWorkerConfig.ecmLimit) : config.ecmWorkerConfig.ecmLimit,
+                            ecmB2Multiplier: config.ecmWorkerConfig.b2Multiplier
+                        };
                         this.workerPool.broadcastToSubset(ecmWorkerIds, Messages.createFactorize(siqsTarget, this.currentSessionId, ecmParams));
                     }
                     
                     // P-1 Targets (Uses UI Iters for Brent, infinite P-1)
                     if (p1WorkerIds.length > 0) {
-                        let p1Params = { ...baseParams, ecmIters: 0, p1Iters: Infinity };
+                        let p1Params = {
+                            ...this.currentParams,
+                            ecmIters: 0,
+                            p1Iters: Infinity,
+                            brentIters: config.p1WorkerConfig.brentIters,
+                            rhoLimit: config.p1WorkerConfig.brentLimit,
+                            p1Limit: config.p1WorkerConfig.p1Limit,
+                            p1B2Multiplier: config.p1WorkerConfig.b2Multiplier
+                        };
                         this.workerPool.broadcastToSubset(p1WorkerIds, Messages.createFactorize(siqsTarget, this.currentSessionId, p1Params));
                     }
                     
                     // Brent Targets (Infinite Brent)
                     if (brentWorkerIds.length > 0) {
-                        let brentParams = { ...baseParams, ecmIters: 0, p1Iters: 0, brentIters: Infinity };
+                        let brentParams = {
+                            ...this.currentParams,
+                            ecmIters: 0,
+                            p1Iters: 0,
+                            brentIters: Infinity,
+                            rhoLimit: config.brentWorkerConfig.brentLimit
+                        };
                         this.workerPool.broadcastToSubset(brentWorkerIds, Messages.createFactorize(siqsTarget, this.currentSessionId, brentParams));
                     }
                 } else {

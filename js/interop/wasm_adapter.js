@@ -70,10 +70,10 @@ export const WasmAdapter = {
      * @param {number} workerId ワーカーID。
      * @returns {bigint|null} 発見された因数（BigInt）、または見つからなければ null。
      */
-    pollardP1(bigIntNum, limit, sievedPrimes, workerId) {
+    pollardP1(bigIntNum, limit, b2Multiplier, sievedPrimes, workerId) {
         let bytes = bigIntToBytesLE(bigIntNum);
         let primesArr = new Uint32Array(sievedPrimes);
-        let factorBytes = pollard_p1_bytes(bytes, limit, primesArr, workerId);
+        let factorBytes = pollard_p1_bytes(bytes, limit, b2Multiplier, primesArr, workerId);
         return factorBytes ? bytesToBigIntLE(factorBytes) : null;
     },
 
@@ -101,9 +101,9 @@ export const WasmAdapter = {
      * @param {number} b1 第1段階限界値 B1。
      * @returns {EcmRunner} WASM上のランナーオブジェクト。
      */
-    createEcmRunner(bigIntNum, b1) {
+    createEcmRunner(bigIntNum, b1, b2Multiplier) {
         let bytes = bigIntToBytesLE(bigIntNum);
-        return new EcmRunner(bytes, b1);
+        return new EcmRunner(bytes, b1, b2Multiplier);
     },
 
     /**

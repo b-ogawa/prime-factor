@@ -44,7 +44,7 @@ export enum ActionType {
 export class EcmRunner {
     free(): void;
     [Symbol.dispose](): void;
-    constructor(n_bytes: Uint8Array, b1: number);
+    constructor(n_bytes: Uint8Array, b1: number, b2_multiplier: number);
     /**
      * 指定された回数（カーブ数）だけ、Suyamaの媒介変数を用いた楕円曲線法（Montgomery ladder 形式）を実行する。
      *
@@ -201,7 +201,7 @@ export function pollard_brent_bytes(n_bytes: Uint8Array, max_iters: number, seed
 /**
  * JSのバイト配列を受け取り、Pollard's P-1 法を用いて合成数の因数を探索するラッパー。
  */
-export function pollard_p1_bytes(n_bytes: Uint8Array, b1: number, primes: Uint32Array, seed_offset: number): Uint8Array | undefined;
+export function pollard_p1_bytes(n_bytes: Uint8Array, b1: number, b2_multiplier: number, primes: Uint32Array, seed_offset: number): Uint8Array | undefined;
 
 /**
  * JavaScript側から呼び出され、CPUの演算能力を評価するためのマイクロベンチマーク。
@@ -233,7 +233,7 @@ export interface InitOutput {
     readonly __wbg_factorizationsession_free: (a: number, b: number) => void;
     readonly __wbg_siqsreducer_free: (a: number, b: number) => void;
     readonly __wbg_siqsworker_free: (a: number, b: number) => void;
-    readonly ecmrunner_new: (a: number, b: number, c: number) => number;
+    readonly ecmrunner_new: (a: number, b: number, c: number, d: number) => number;
     readonly ecmrunner_run_curves: (a: number, b: number) => [number, number];
     readonly factorizationsession_factor_locally: (a: number, b: number, c: number) => number;
     readonly factorizationsession_get_available_buffer: (a: number) => number;
@@ -258,7 +258,7 @@ export interface InitOutput {
     readonly factorizationsession_submit_worker_result: (a: number, b: number, c: number) => number;
     readonly is_prime_bpsw_bytes: (a: number, b: number) => number;
     readonly pollard_brent_bytes: (a: number, b: number, c: number, d: number) => [number, number];
-    readonly pollard_p1_bytes: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly pollard_p1_bytes: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number];
     readonly run_micro_benchmark: () => number;
     readonly sieve_primes_wasm: (a: number) => [number, number];
     readonly siqsreducer_add_relation: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => void;

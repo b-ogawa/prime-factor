@@ -252,7 +252,8 @@ async function runPollardP1Strategy(M, params, ctx) {
         let iterLabel = isInfinite ? `Iter ${iter+1}` : `Iter ${iter+1}/${iters}`;
         ctx.sendPhase(`Pollard P-1 (${iterLabel})`, `Limit=${params.p1Limit}`, true);
         
-        let factor = WasmAdapter.pollardP1(M, params.p1Limit, ctx.sievedPrimes, ctx.workerId + iter);
+        let b2Multiplier = params.p1B2Multiplier || 10;
+        let factor = WasmAdapter.pollardP1(M, params.p1Limit, b2Multiplier, ctx.sievedPrimes, ctx.workerId + iter);
         if (factor) {
             postMessage(Messages.createFactorFound(ctx.workerId, ctx.currentSessionId, M.toString(), factor.toString(), "P-1"));
             return true;
@@ -315,7 +316,8 @@ async function runEcmStrategy(M, params, ctx) {
     while (isInfinite || curves_run < params.maxCurves) {
         if (ctx.checkAbort() || ctx.currentTaskId !== M) return true;
 
-        using ecmRunner = WasmAdapter.createEcmRunner(M, params.b1);
+        let b2Multiplier = params.ecmB2Multiplier || 50;
+        using ecmRunner = WasmAdapter.createEcmRunner(M, params.b1, b2Multiplier);
         let curves_to_run = isInfinite ? chunk_size : Math.min(chunk_size, params.maxCurves - curves_run);
         
         let progressStr = isInfinite ? `Curves ${curves_run}` : `Curves ${curves_run} / ${params.maxCurves}`;

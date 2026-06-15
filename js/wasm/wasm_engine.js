@@ -55,11 +55,12 @@ export class EcmRunner {
     /**
      * @param {Uint8Array} n_bytes
      * @param {number} b1
+     * @param {number} b2_multiplier
      */
-    constructor(n_bytes, b1) {
+    constructor(n_bytes, b1, b2_multiplier) {
         const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
-        const ret = wasm.ecmrunner_new(ptr0, len0, b1);
+        const ret = wasm.ecmrunner_new(ptr0, len0, b1, b2_multiplier);
         this.__wbg_ptr = ret;
         EcmRunnerFinalization.register(this, this.__wbg_ptr, this);
         return this;
@@ -539,16 +540,17 @@ export function pollard_brent_bytes(n_bytes, max_iters, seed_offset) {
  * JSのバイト配列を受け取り、Pollard's P-1 法を用いて合成数の因数を探索するラッパー。
  * @param {Uint8Array} n_bytes
  * @param {number} b1
+ * @param {number} b2_multiplier
  * @param {Uint32Array} primes
  * @param {number} seed_offset
  * @returns {Uint8Array | undefined}
  */
-export function pollard_p1_bytes(n_bytes, b1, primes, seed_offset) {
+export function pollard_p1_bytes(n_bytes, b1, b2_multiplier, primes, seed_offset) {
     const ptr0 = passArray8ToWasm0(n_bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray32ToWasm0(primes, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.pollard_p1_bytes(ptr0, len0, b1, ptr1, len1, seed_offset);
+    const ret = wasm.pollard_p1_bytes(ptr0, len0, b1, b2_multiplier, ptr1, len1, seed_offset);
     let v3;
     if (ret[0] !== 0) {
         v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();

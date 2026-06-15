@@ -306,9 +306,26 @@ export class UIController {
         let ecmCores = parseInt(document.getElementById('paramEcmCores')?.value) || 0;
         let siqsCores = parseInt(document.getElementById('paramSiqsCores')?.value) || 0;
 
-        // Iterations
-        let brentIters = parseInt(document.getElementById('paramBrentIters')?.value) || 0;
-        let p1Iters = parseInt(document.getElementById('paramP1Iters')?.value) || 0;
+        // Worker-specific configs
+        let ecmWorkerConfig = {
+            brentIters: parseInt(document.getElementById('ecm_brentIters')?.value) || 0,
+            brentLimit: parseInt(document.getElementById('ecm_brentLimit')?.value) || 0,
+            p1Iters: parseInt(document.getElementById('ecm_p1Iters')?.value) || 0,
+            p1Limit: parseInt(document.getElementById('ecm_p1Limit')?.value) || 0,
+            ecmLimit: parseInt(document.getElementById('ecm_ecmLimit')?.value) || 0,
+            b2Multiplier: parseInt(document.getElementById('ecm_b2Multiplier')?.value) || 50,
+        };
+
+        let p1WorkerConfig = {
+            brentIters: parseInt(document.getElementById('p1_brentIters')?.value) || 0,
+            brentLimit: parseInt(document.getElementById('p1_brentLimit')?.value) || 0,
+            p1Limit: parseInt(document.getElementById('p1_p1Limit')?.value) || 0,
+            b2Multiplier: parseInt(document.getElementById('p1_b2Multiplier')?.value) || 10,
+        };
+
+        let brentWorkerConfig = {
+            brentLimit: parseInt(document.getElementById('brent_brentLimit')?.value) || 0,
+        };
 
         let lanczosExtraRelations = 15; // default
         let sieveBlockSize = parseInt(document.getElementById('paramSieveBlockSize')?.value) || 32768;
@@ -329,8 +346,9 @@ export class UIController {
             p1Cores,
             ecmCores,
             siqsCores,
-            brentIters,
-            p1Iters,
+            ecmWorkerConfig,
+            p1WorkerConfig,
+            brentWorkerConfig,
             lanczosExtraRelations,
             sieveBlockSize
         };

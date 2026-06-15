@@ -2,11 +2,11 @@
 <html lang="ja">
 
 <head>
-    <script src="js/coi-serviceworker.min.js"></script>
+    <!-- <script src="js/coi-serviceworker.min.js"></script> -->
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Parallel Prime Factorization Engine (SIQS/MPQS & ECM)</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="js/tailwindcss.js"></script>
     <link rel="stylesheet" href="css/style.css">
 </head>
 
@@ -33,18 +33,14 @@
                     </div>
                 </div>
 
-                <!-- モード切替 -->
-                <div class="mb-4">
-                    <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Factorization
-                        Mode</label>
-                    <select id="engineMode"
-                        class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 transition-all">
-                        <option value="auto">Auto-Route (Best of Both Worlds)</option>
-                        <option value="siqs">Pure SIQS / MPQS Mode (25 - 65 digits)</option>
-                        <option value="ecm">BPSW + Pollard P-1 + ECM Suite</option>
-                    </select>
+                <!-- タブナビゲーション -->
+                <div class="flex border-b border-slate-200 mb-4">
+                    <button id="tabBasic" class="px-4 py-2 text-xs font-bold text-emerald-600 border-b-2 border-emerald-600 transition-all uppercase tracking-wide">Basic Engine</button>
+                    <button id="tabAdvanced" class="px-4 py-2 text-xs font-bold text-slate-400 border-b-2 border-transparent hover:text-slate-600 transition-all uppercase tracking-wide">Advanced / Portfolio</button>
                 </div>
 
+                <!-- Target Number (N) (Common to both but we put it in Basic mostly, actually it's better above the tabs or keep it in Basic) -->
+                <!-- Let's put Target Number outside the tabs so it's always visible -->
                 <div class="mb-4">
                     <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Target Number (N)</label>
                     <textarea id="numberInput" rows="3"
@@ -55,67 +51,171 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3 mb-5">
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Trial Limit</label>
-                        <input type="number" id="paramTrialLimit" value="10000"
-                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                <!-- Basic Tab Content -->
+                <div id="panelBasic">
+                    <!-- モード切替 -->
+                    <div class="mb-4">
+                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Factorization Mode</label>
+                        <select id="engineMode"
+                            class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2.5 text-xs font-semibold focus:outline-none focus:border-emerald-500 transition-all">
+                            <option value="auto">Auto-Route (Best of Both Worlds)</option>
+                            <option value="siqs">Pure SIQS / MPQS Mode (25 - 65 digits)</option>
+                            <option value="ecm">BPSW + ECM Suite (with P-1 Pre-filter)</option>
+                        </select>
                     </div>
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">ECM B1 Limit</label>
-                        <input type="number" id="paramB1" value="5000"
-                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">P-1 Limit</label>
-                        <input type="number" id="paramP1Limit" value="25000"
-                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Rho Limit</label>
-                        <input type="number" id="paramRhoLimit" value="250000"
-                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
-                    </div>
-                    <div class="col-span-2">
-                        <label class="block text-[10px] font-bold text-slate-500 mb-1">Max ECM Curves per Worker</label>
-                        <input type="number" id="paramMaxCurves" value="500"
-                            class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+
+                    <div class="grid grid-cols-2 gap-3 mb-5">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 mb-1">Trial Limit</label>
+                            <input type="number" id="paramTrialLimit" value="10000" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 mb-1">ECM B1 Limit</label>
+                            <input type="number" id="paramB1" value="5000" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 mb-1">P-1 Limit</label>
+                            <input type="number" id="paramP1Limit" value="25000" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 mb-1">Rho Limit</label>
+                            <input type="number" id="paramRhoLimit" value="250000" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-[10px] font-bold text-slate-500 mb-1">Max ECM Curves per Worker</label>
+                            <input type="number" id="paramMaxCurves" value="500" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                        </div>
                     </div>
                 </div>
 
-                <!-- 詳細設定・並行探索設定トグル -->
-                <div class="mb-5 border border-slate-200 rounded-lg overflow-hidden">
-                    <label class="flex items-center justify-between p-3 bg-slate-50 cursor-pointer select-none" for="chkDetailedMode">
-                        <span class="text-xs font-bold text-slate-700">Detailed / Portfolio Mode</span>
-                        <input type="checkbox" id="chkDetailedMode" class="form-checkbox text-emerald-500 rounded border-slate-300 w-4 h-4">
-                    </label>
-                    <div id="detailedSettingsPanel" class="p-3 bg-white hidden grid-cols-2 gap-3 border-t border-slate-200">
-                        <div class="col-span-2 flex items-center mb-1">
+                <!-- Advanced Tab Content -->
+                <div id="panelAdvanced" class="hidden">
+                    <div class="mb-4 bg-emerald-50 border border-emerald-200 p-3 rounded-lg">
+                        <label class="flex items-center cursor-pointer select-none" for="chkConcurrentPortfolio">
                             <input type="checkbox" id="chkConcurrentPortfolio" class="form-checkbox text-emerald-500 rounded border-slate-300 w-4 h-4 mr-2">
-                            <label for="chkConcurrentPortfolio" class="text-[11px] font-bold text-slate-600">Enable Concurrent Portfolio Search (ECM + SIQS)</label>
+                            <span class="text-xs font-bold text-emerald-800">Enable Concurrent Portfolio Search</span>
+                        </label>
+                        <p class="text-[10px] text-emerald-600 mt-1 ml-6 leading-tight">Bypasses standard mode. Designates target pipelines for specific worker groups.</p>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="text-[10px] font-bold text-slate-500 mb-2 uppercase border-b border-slate-200 pb-1">Worker Core Allocation (Target Endpoint)</div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1">Brent Target Cores</label>
+                                <input type="number" id="paramBrentCores" value="0" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1">P-1 Target Cores</label>
+                                <input type="number" id="paramP1Cores" value="0" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1">ECM Target Cores</label>
+                                <input type="number" id="paramEcmCores" value="1" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1 text-emerald-600">SIQS Cores (Pure SIQS Only)</label>
+                                <input type="number" id="paramSiqsCores" value="3" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-[10px] font-bold text-slate-500 mb-1">ECM Portfolio Cores</label>
-                            <input type="number" id="paramEcmCores" value="1" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                    </div>
+
+                    <div class="mb-4 space-y-3">
+                        <div class="text-[10px] font-bold text-slate-500 mb-2 uppercase border-b border-slate-200 pb-1">Worker Pipeline Configurations</div>
+                        
+                        <!-- ECM Worker Config -->
+                        <div class="border border-slate-200 rounded p-2.5 bg-slate-50/50">
+                            <div class="text-[10px] font-bold text-slate-600 mb-1.5 flex justify-between items-center">
+                                <span>ECM Worker</span>
+                                <span class="text-[9px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded">Target: ECM</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-[9px] font-bold text-slate-500 mb-0.5">Brent Iters</label>
+                                    <input type="number" id="ecm_brentIters" value="1" class="w-full bg-white border border-slate-200 rounded p-1 text-xs font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-[9px] font-bold text-slate-500 mb-0.5">Brent Limit</label>
+                                    <input type="number" id="ecm_brentLimit" value="10000" class="w-full bg-white border border-slate-200 rounded p-1 text-xs font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-[9px] font-bold text-slate-500 mb-0.5">P-1 Iters</label>
+                                    <input type="number" id="ecm_p1Iters" value="0" class="w-full bg-white border border-slate-200 rounded p-1 text-xs font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-[9px] font-bold text-slate-500 mb-0.5">P-1 Limit</label>
+                                    <input type="number" id="ecm_p1Limit" value="25000" class="w-full bg-white border border-slate-200 rounded p-1 text-xs font-mono">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-[9px] font-bold text-emerald-600 mb-0.5">ECM Limit (B1)</label>
+                                    <input type="number" id="ecm_ecmLimit" value="111000" class="w-full bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-1 text-xs font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                                </div>
+                                <div class="col-span-2 border-t border-slate-200 pt-2 mt-1">
+                                    <label class="block text-[9px] font-bold text-emerald-600 mb-0.5">ECM B2 Multiplier (Stage 2)</label>
+                                    <input type="number" id="ecm_b2Multiplier" value="50" class="w-full bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-1 text-xs font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" title="B2 = B1 * Multiplier">
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-[10px] font-bold text-slate-500 mb-1">SIQS Portfolio Cores</label>
-                            <input type="number" id="paramSiqsCores" value="3" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+
+                        <!-- P-1 Worker Config -->
+                        <div class="border border-slate-200 rounded p-2.5 bg-slate-50/50">
+                            <div class="text-[10px] font-bold text-slate-600 mb-1.5 flex justify-between items-center">
+                                <span>P-1 Worker</span>
+                                <span class="text-[9px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded">Target: P-1</span>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-[9px] font-bold text-slate-500 mb-0.5">Brent Iters</label>
+                                    <input type="number" id="p1_brentIters" value="1" class="w-full bg-white border border-slate-200 rounded p-1 text-xs font-mono">
+                                </div>
+                                <div>
+                                    <label class="block text-[9px] font-bold text-slate-500 mb-0.5">Brent Limit</label>
+                                    <input type="number" id="p1_brentLimit" value="250000" class="w-full bg-white border border-slate-200 rounded p-1 text-xs font-mono">
+                                </div>
+                                <div class="col-span-2">
+                                    <label class="block text-[9px] font-bold text-emerald-600 mb-0.5">P-1 Limit (B1)</label>
+                                    <input type="number" id="p1_p1Limit" value="50000" class="w-full bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-1 text-xs font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                                </div>
+                                <div class="col-span-2 border-t border-slate-200 pt-2 mt-1">
+                                    <label class="block text-[9px] font-bold text-emerald-600 mb-0.5">P-1 B2 Multiplier (Stage 2)</label>
+                                    <input type="number" id="p1_b2Multiplier" value="10" class="w-full bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-1 text-xs font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500" title="B2 = B1 * Multiplier">
+                                </div>
+                            </div>
                         </div>
-                        <div class="col-span-2 mt-2">
-                            <label class="block text-[10px] font-bold text-slate-500 mb-1">SIQS Parameter Derivation</label>
-                            <select id="selParameterDerivation" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
-                                <option value="dynamic">Dynamic (Auto M, B)</option>
-                                <option value="manual">Manual</option>
-                            </select>
+
+                        <!-- Brent Worker Config -->
+                        <div class="border border-slate-200 rounded p-2.5 bg-slate-50/50">
+                            <div class="text-[10px] font-bold text-slate-600 mb-1.5 flex justify-between items-center">
+                                <span>Brent Worker</span>
+                                <span class="text-[9px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded">Target: Brent</span>
+                            </div>
+                            <div class="grid grid-cols-1 gap-2">
+                                <div>
+                                    <label class="block text-[9px] font-bold text-emerald-600 mb-0.5">Brent Limit</label>
+                                    <input type="number" id="brent_brentLimit" value="500000" class="w-full bg-emerald-50 border border-emerald-200 text-emerald-800 rounded p-1 text-xs font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500">
+                                </div>
+                            </div>
                         </div>
-                        <div>
-                            <label class="block text-[10px] font-bold text-slate-500 mb-1">Manual Sieve Limit (M)</label>
-                            <input type="number" id="paramManualM" value="65536" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
-                        </div>
-                        <div>
-                            <label class="block text-[10px] font-bold text-slate-500 mb-1">Sieve Block Size (KB)</label>
-                            <input type="number" id="paramSieveBlockSize" value="32768" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                    </div>
+
+                    <div class="mb-5">
+                        <div class="text-[10px] font-bold text-slate-500 mb-2 uppercase border-b border-slate-200 pb-1">Manual SIQS Parameters</div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="col-span-2">
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1">Parameter Derivation</label>
+                                <select id="selParameterDerivation" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                                    <option value="dynamic">Dynamic (Auto M, B)</option>
+                                    <option value="manual">Manual</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1">Manual Sieve Limit (M)</label>
+                                <input type="number" id="paramManualM" value="65536" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 mb-1">Sieve Block Size (KB)</label>
+                                <input type="number" id="paramSieveBlockSize" value="32768" class="w-full bg-slate-50 border border-slate-200 rounded p-1.5 text-xs font-mono">
+                            </div>
                         </div>
                     </div>
                 </div>
