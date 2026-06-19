@@ -14,6 +14,14 @@ let engine;
 let ui;
 
 window.onload = async () => {
+    // SharedArrayBuffer is required for worker pool.
+    // If it's not defined, coi-serviceworker is likely registering and will reload the page soon.
+    if (typeof SharedArrayBuffer === 'undefined') {
+        console.warn("SharedArrayBuffer is not defined. Waiting for COOP/COEP headers via coi-serviceworker...");
+        document.getElementById('consoleLog').innerHTML = '<div class="text-slate-400 font-mono text-[11px]">&gt; Waiting for Cross-Origin Isolation headers. Page will reload shortly...</div>';
+        return;
+    }
+
     // Initialize WASM module on the main thread for SIQS Coordinator
     let wasm = await init();
     WasmAdapter.wasm = wasm;
